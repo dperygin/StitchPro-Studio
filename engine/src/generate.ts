@@ -2,10 +2,11 @@
 
 import type { StitchObject } from './document';
 import { columnStitches, twoRailStitches } from './columns';
-import { tatamiFill } from './fill';
+import { tatamiParams } from './fill';
 import { polygonFromRings, type Region } from './geometry';
 import { materializePath } from './path';
 import { raisedSatin, runningStitch } from './stitchlib';
+import { fillWithAngles } from './turning';
 import type { Motif, Point, StitchSettings, StitchType } from './types';
 
 const ROW_SPACED: readonly StitchType[] = ['fill', 'laydown'];
@@ -48,7 +49,7 @@ export function generateTopStitching(o: StitchObject, _motifs: readonly Motif[])
     case 'e_stitch':
       return columnStitches(o.points, o.closed, s, s.stitchType);
     case 'fill':
-      return tatamiFill(areaRegion(o), s, o.fillStart, o.fillEnd);
+      return fillWithAngles(areaRegion(o), o.stitchAngles, tatamiParams(s, o.fillStart, o.fillEnd));
     case 'radial_satin':
       return twoRailStitches(
         { rail1: o.points, rail2: o.rail2, closed: o.closed, paired: s.pairedRails, stitchAngles: o.stitchAngles },
