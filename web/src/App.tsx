@@ -1,7 +1,7 @@
 // Layout, tabs, dialogs, global keys. The shell holds open designs (one Editor each, sharing
 // fonts and clipboard) and handles what only the browser can do: files, downloads, dialogs.
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Clipboard, Editor, FontEditorSession, FontLibrary, formatLength, keyInput, type HostAction } from '@stitchpro/editor';
 import { createDocument, createNativeFont } from '@stitchpro/engine';
 import { useEditorState } from './useEditor';
@@ -16,8 +16,14 @@ import { StitchList } from './StitchList';
 import { PaletteBar } from './PaletteBar';
 import { Settings } from './Settings';
 import { ToolDialog } from './Dialogs';
-import { download, openDesigns, saveDesign } from './saveFile';
-import { decodeArtwork } from './artwork';
+import { download, openDesigns, pickFiles, saveDesign } from './saveFile';
+import { ARTWORK_ACCEPT, decodeArtwork, importArtworkFiles } from './artwork';
+import { importSvgFile } from './svgImport';
+import { MACHINE_ACCEPT, readMachineFile } from './machineImport';
+import { ExportDialog } from './ExportDialog';
+import { downloadPng, downloadWorksheet } from './worksheet';
+import { clearAutosave, forgetAutosave, loadAutosaved, watchAutosave } from './autosave';
+import { applyPrefs, watchPrefs } from './viewPrefs';
 import { TextDialog } from './TextDialog';
 import { FontEditorPanel, LetterGrid } from './FontEditorPanel';
 import { loadBundledFonts } from './fonts';
@@ -29,12 +35,17 @@ let tabCounter = 0;
 export function App() {
   const fonts = useMemo(() => new FontLibrary(), []);
   const clipboard = useMemo(() => new Clipboard(), []);
-  const newTab = (doc = createDocument(), name = 'Untitled'): Tab => ({ id: ++tabCounter, editor: new Editor(doc, { fonts, clipboard }), name, file: null });
+  const newTab = (doc = createDocument(), name = 'Untitled', file: Tab['file'] = null): Tab => {
+    const editor = new Editor(doc, { fonts, clipboard });
+    applyPrefs(editor);
+    return { id: ++tabCounter, editor, name, file };
+  };
   const [tabs, setTabs] = useState<Tab[]>(() => [newTab()]);
   const [activeId, setActiveId] = useState(() => tabs[0]!.id);
   const [server, setServer] = useState<ServerState>('checking');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dialog, setDialog] = useState<string | null>(null);
+  const [exportFormat, setExportFormat] = useState<string | null>(null);
   const [textDialog, setTextDialog] = useState<{ textId: number | null } | null>(null);
   const active = tabs.find((t) => t.id === activeId) ?? tabs[0]!;
   const session = active.session ?? null;
@@ -49,6 +60,50 @@ export function App() {
   useEffect(() => {
     void loadBundledFonts(fonts);
   }, [fonts]);
+
+  // Autosave: restore the tabs saved last time (replacing the untouched start tab), then save
+  // every design tab 1.5 s after it changes; closing a tab forgets it.
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const watchers = useRef(new Map<number, () => void>());
+  useEffect(() => {
+    let cancelled = false;
+    void loadAutosaved().then(async (saved) => {
+      if (cancelled || !saved.length) return;
+      await clearAutosave();
+      const restored = saved.map((s) => newTab(s.doc, s.name, s.file));
+      setTabs((ts) => {
+        const untouched = ts.length === 1 && !ts[0]!.editor.doc.objects.length && !ts[0]!.editor.canUndo;
+        if (untouched) ts[0]!.editor.dispose();
+        return untouched ? restored : [...ts, ...restored];
+      });
+      setActiveId(restored[restored.length - 1]!.id);
+      restored[restored.length - 1]!.editor.setStatus(`Restored ${restored.length} design${restored.length === 1 ? '' : 's'} from the last session`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    const live = new Set(tabs.filter((t) => !t.session).map((t) => t.id));
+    for (const [id, stop] of watchers.current) {
+      if (live.has(id)) continue;
+      stop();
+      watchers.current.delete(id);
+      void forgetAutosave(id);
+    }
+    for (const t of tabs) {
+      if (t.session || watchers.current.has(t.id)) continue;
+      const describe = () => {
+        const cur = tabsRef.current.find((x) => x.id === t.id) ?? t;
+        return { name: cur.name, file: cur.file };
+      };
+      watchers.current.set(t.id, watchAutosave(t.id, t.editor, describe));
+    }
+  }, [tabs]);
+
+  // Preferences follow the active editor.
+  useEffect(() => watchPrefs(editor), [editor]);
 
   useEffect(() => {
     fetch('/api/health')
@@ -80,7 +135,28 @@ export function App() {
         setTabs((ts) => ts.map((t) => (t.id === active.id ? { ...t, file, name: file?.name ?? t.name } : t)));
         editor.setStatus('Saved');
       } else if (action === 'export') {
-        await exportFile(typeof arg === 'string' ? arg : 'dst');
+        setExportFormat(typeof arg === 'string' ? arg : 'dst');
+      } else if (action === 'importMachine') {
+        const [file] = await pickFiles(MACHINE_ACCEPT);
+        if (!file) return;
+        editor.setStatus(`Reading ${file.name}…`);
+        const doc = await readMachineFile(file);
+        const t = newTab(doc, file.name);
+        setTabs((ts) => [...ts, t]);
+        setActiveId(t.id);
+        t.editor.setStatus(`Imported ${doc.objects.length} runs from ${file.name}`);
+      } else if (action === 'importArtwork') {
+        const files = await pickFiles(`${ARTWORK_ACCEPT},image/*`, true);
+        if (files.length) await importArtworkFiles(editor, files);
+      } else if (action === 'importSvg') {
+        const [file] = await pickFiles('.svg,image/svg+xml');
+        if (file) await importSvgFile(editor, file);
+      } else if (action === 'exportSvg') {
+        setDialog('file.exportSvg');
+      } else if (action === 'print') {
+        if (arg === 'template') setDialog('file.printTemplate');
+        else if (arg === 'image') downloadPng(editor);
+        else downloadWorksheet(editor);
       } else if (action === 'settings') {
         setSettingsOpen(true);
       } else if (action === 'dialog' && typeof arg === 'string') {
@@ -98,15 +174,26 @@ export function App() {
     }
   }
 
-  async function exportFile(fmt: string) {
-    if (!editor.hoopFits()) {
-      const d = editor.doc;
-      const ok = window.confirm(`The design is bigger than the ${d.hoopWidth} x ${d.hoopHeight} mm hoop. Export anyway?`);
-      if (!ok) {
-        editor.setStatus('Export cancelled: the design is bigger than the hoop');
-        return;
+  /** Exports the design in each format (one hoop check for all). */
+  async function exportFiles(formats: string[]) {
+    try {
+      if (!editor.hoopFits()) {
+        const d = editor.doc;
+        const ok = window.confirm(`The design is bigger than the ${d.hoopWidth} x ${d.hoopHeight} mm hoop. Export anyway?`);
+        if (!ok) {
+          editor.setStatus('Export cancelled: the design is bigger than the hoop');
+          return;
+        }
       }
+      for (const f of formats) await exportFile(f);
+      if (formats.length > 1) editor.setStatus(`Exported ${formats.map((f) => f.toUpperCase()).join(', ')}`);
+    } catch (e) {
+      editor.setStatus((e as Error).message);
     }
+  }
+
+  /** One machine file from the server (the paywall's entitled() check lives there). */
+  async function exportFile(fmt: string) {
     editor.setStatus(`Exporting ${fmt.toUpperCase()}…`);
     const res = await fetch(`/api/export/${fmt}`, {
       method: 'POST',
@@ -184,6 +271,7 @@ export function App() {
       </footer>
       {settingsOpen && <Settings editor={editor} onClose={() => setSettingsOpen(false)} />}
       {dialog && <ToolDialog key={dialog} editor={editor} id={dialog} onClose={() => setDialog(null)} />}
+      {exportFormat && <ExportDialog editor={editor} format={exportFormat} onExport={(fs) => void exportFiles(fs)} onClose={() => setExportFormat(null)} />}
       {textDialog && <TextDialog editor={editor} textId={textDialog.textId} onClose={() => setTextDialog(null)} />}
     </div>
   );

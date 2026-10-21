@@ -3,7 +3,7 @@
 // The plan is what the server turns into a machine file: plain data, in millimetres, y down.
 
 import type { StitchDocument, StitchObject, ThreadRef } from './document';
-import { paletteIndexOf, sameColor, updateObject } from './document';
+import { createDocument, createObject, paletteIndexOf, pathNode, sameColor, syncPalette, updateObject } from './document';
 import { TRAVEL_STITCH } from './fill';
 import { covers, fastAreaCovers, nearestOnBoundary, uncoveredLength, type CoverRaster } from './geometry';
 import { cumulativeLengths, distance, pointAt, resampleKeepingCorners } from './path';
@@ -363,4 +363,55 @@ export function applyClosestJoin(doc: StitchDocument, stitchesOf: StitchesOf): S
     }
   }
   return out;
+}
+
+// ---- machine file import ----
+
+/** A machine file as the server reads it: threads, and needle runs split at jumps, trims and stops. */
+export interface MachineFileData {
+  threads: ExportThread[];
+  runs: { thread: number; points: Point[]; stop: boolean }[];
+  stitches: number;
+}
+
+/** Thread colours for files that carry none (DST, EXP): the palette's colours in turn. */
+const FALLBACK_COLOURS: readonly RGB[] = [
+  [0, 0, 0],
+  [200, 16, 46],
+  [0, 94, 184],
+  [0, 132, 61],
+  [255, 130, 0],
+  [102, 45, 145],
+  [255, 205, 0],
+  [236, 0, 140],
+];
+
+/** A design from a machine file: each run a Manual object, grouped per colour block. */
+export function importedDesign(data: MachineFileData, name: string): StitchDocument {
+  const doc = createDocument({ name, closestJoin: false });
+  let group = 0;
+  let lastThread = -1;
+  for (const run of data.runs) {
+    if (run.points.length < 1) continue;
+    if (run.thread !== lastThread) {
+      group++;
+      lastThread = run.thread;
+    }
+    const t = data.threads[run.thread];
+    const color: RGB = t ? [t.color[0], t.color[1], t.color[2]] : [...FALLBACK_COLOURS[run.thread % FALLBACK_COLOURS.length]!];
+    const thread: ThreadRef | null = t && t.code ? { chart: t.brand, code: t.code, name: t.name } : null;
+    doc.objects.push(
+      createObject(doc, {
+        stitchType: 'manual',
+        name: `Colour ${group} run`,
+        points: run.points.map(([x, y]) => pathNode(x, y)),
+        color,
+        thread,
+        groupId: group,
+        stopAfter: run.stop,
+      }),
+    );
+  }
+  doc.palette = syncPalette(doc.palette, doc.objects);
+  return doc;
 }

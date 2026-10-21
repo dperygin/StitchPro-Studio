@@ -88,6 +88,8 @@ export class Renderer {
   private baseKey = '';
   private pending = false;
   private paths = new Map<number, { version: number; path: PathLike }>();
+  /** Loaded artwork pictures by artwork id. */
+  private images = new Map<number, { src: string; img: HTMLImageElement; ready: boolean }>();
   private readonly ratio: number;
   private readonly createCanvas: (w: number, h: number) => CanvasLike;
   private readonly createPath: () => PathLike;
@@ -191,6 +193,7 @@ export class Renderer {
     ctx.fillStyle = theme.background;
     ctx.fillRect(0, 0, target.width, target.height);
     this.designTransform(ctx);
+    this.drawArtwork(ctx);
     if (editor.showGrid) this.drawGrid(ctx, target);
     this.drawHoop(ctx);
     const shown = editor.player.index;
@@ -205,6 +208,29 @@ export class Renderer {
       }
     }
     if (editor.showMarks) this.drawMarks(ctx);
+  }
+
+  /** Tracing pictures under the design (loaded once; the base redraws when one arrives). */
+  private drawArtwork(ctx: CanvasRenderingContext2D): void {
+    if (typeof Image === 'undefined') return;
+    for (const a of this.editor.doc.artwork) {
+      if (!a.visible) continue;
+      let entry = this.images.get(a.id);
+      if (!entry || entry.src !== a.src) {
+        const img = new Image();
+        const e = { src: a.src, img, ready: false };
+        img.onload = () => {
+          e.ready = true;
+          this.editor.changed('base');
+        };
+        img.src = a.src;
+        this.images.set(a.id, (entry = e));
+      }
+      if (!entry.ready) continue;
+      ctx.globalAlpha = a.opacity;
+      ctx.drawImage(entry.img, a.x, a.y, a.width, a.height);
+      ctx.globalAlpha = 1;
+    }
   }
 
   /** The first n stitches of an object (stitch player). */

@@ -1,8 +1,10 @@
 // Tool dialogs: they collect options and call the editor method that does the work.
 
 import { useState } from 'react';
-import { BUILTIN_MOTIFS } from '@stitchpro/engine';
+import { BUILTIN_MOTIFS, PAGE_SIZES, designSvg, type Orientation } from '@stitchpro/engine';
 import { fromDisplay, toDisplay, type Editor } from '@stitchpro/editor';
+import { download } from './saveFile';
+import { downloadTemplate } from './worksheet';
 
 interface FieldSpec {
   key: string;
@@ -21,8 +23,47 @@ interface DialogSpec {
   apply: (ed: Editor, v: Record<string, number | boolean | string>) => void;
 }
 
-/** Copy-tool dialogs by command id. Lengths are entered in the display units. */
+/** Tool dialogs by command id. Lengths are entered in the display units. */
 export const DIALOGS: Record<string, (ed: Editor) => DialogSpec> = {
+  'file.exportSvg': () => ({
+    title: 'Export SVG',
+    fields: [
+      {
+        key: 'mode',
+        label: 'Draw',
+        kind: 'choice',
+        initial: 'stitches',
+        options: [
+          { value: 'stitches', label: 'Stitches' },
+          { value: 'shapes', label: 'Shapes' },
+        ],
+      },
+    ],
+    apply: (ed, v) => {
+      const svg = designSvg(ed.doc, (o) => ed.stitches(o), v.mode === 'shapes' ? 'shapes' : 'stitches');
+      download(`${ed.doc.name || 'design'}.svg`, svg, 'image/svg+xml');
+      ed.setStatus('Exported SVG at real size');
+    },
+  }),
+  'file.printTemplate': () => ({
+    title: 'Placement template',
+    fields: [
+      { key: 'page', label: 'Paper', kind: 'choice', initial: 'Letter', options: PAGE_SIZES.map((p) => ({ value: p.name, label: p.name })) },
+      {
+        key: 'orientation',
+        label: 'Orientation',
+        kind: 'choice',
+        initial: 'auto',
+        options: [
+          { value: 'auto', label: 'Automatic (fewer pages)' },
+          { value: 'portrait', label: 'Portrait' },
+          { value: 'landscape', label: 'Landscape' },
+        ],
+      },
+      { key: 'overlap', label: 'Page overlap', kind: 'length', initial: 10 },
+    ],
+    apply: (ed, v) => downloadTemplate(ed, { page: String(v.page), orientation: v.orientation as Orientation, overlap: Math.max(0, Number(v.overlap)) }),
+  }),
   'dialog.array': () => ({
     title: 'Array',
     fields: [

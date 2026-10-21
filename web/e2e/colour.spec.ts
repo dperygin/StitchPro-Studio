@@ -32,6 +32,7 @@ test('warns on export when the design is bigger than the hoop', async ({ page })
   });
   await page.getByTestId('menu-file').click();
   await page.getByRole('button', { name: 'Export DST' }).click();
+  await page.getByRole('dialog', { name: 'Export machine file' }).getByRole('button', { name: 'Export' }).click();
   await expect(page.getByTestId('status')).toContainText('bigger than the hoop');
   expect(message).toContain('bigger than the 100 x 100 mm hoop');
 });

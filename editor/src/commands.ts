@@ -106,12 +106,12 @@ export const COMMANDS: readonly Command[] = [
   { id: 'file.open', label: 'Open…', group: 'file', keys: ['Ctrl+O'], ready: true, run: (ed) => ed.requestAction('open') },
   { id: 'file.save', label: 'Save', group: 'file', keys: ['Ctrl+S'], ready: true, run: (ed) => ed.requestAction('save') },
   { id: 'file.saveAs', label: 'Save as…', group: 'file', keys: ['Ctrl+Shift+S'], ready: true, run: (ed) => ed.requestAction('saveAs') },
-  later('file.importMachine', 'Import machine file…', 'file'),
+  { id: 'file.importMachine', label: 'Import machine file…', group: 'file', ready: true, run: (ed) => ed.requestAction('importMachine') },
   { id: 'file.export', label: 'Export machine file…', group: 'file', ready: true, enabled: (ed) => ed.doc.objects.length > 0, run: (ed, fmt) => ed.requestAction('export', fmt) },
-  later('file.exportSvg', 'Export SVG…', 'file'),
-  later('file.printWorksheet', 'Print worksheet', 'file'),
-  later('file.printTemplate', 'Print placement template', 'file'),
-  later('file.printImage', 'Print design image', 'file'),
+  { id: 'file.exportSvg', label: 'Export SVG…', group: 'file', ready: true, enabled: (ed) => ed.doc.objects.length > 0, run: (ed) => ed.requestAction('exportSvg') },
+  { id: 'file.printWorksheet', label: 'Print worksheet', group: 'file', ready: true, enabled: (ed) => ed.doc.objects.length > 0, run: (ed) => ed.requestAction('print', 'worksheet') },
+  { id: 'file.printTemplate', label: 'Print placement template…', group: 'file', ready: true, enabled: (ed) => ed.doc.objects.length > 0, run: (ed) => ed.requestAction('print', 'template') },
+  { id: 'file.printImage', label: 'Print design image', group: 'file', ready: true, enabled: (ed) => ed.doc.objects.length > 0, run: (ed) => ed.requestAction('print', 'image') },
   { id: 'file.settings', label: 'Settings…', group: 'file', ready: true, run: (ed) => ed.requestAction('settings') },
 
   // ---- edit ----
@@ -168,8 +168,8 @@ export const COMMANDS: readonly Command[] = [
   { id: 'view.stitchList', label: 'Stitch list', group: 'view', keys: ['Shift+J'], ready: true, checked: (ed) => ed.stitchListOpen, run: (ed) => ed.toggle('stitchListOpen') },
 
   // ---- tools ----
-  later('file.importArtwork', 'Import artwork…', 'tools'),
-  later('file.importSvg', 'Import SVG as stitches…', 'tools'),
+  { id: 'file.importArtwork', label: 'Import artwork…', group: 'tools', ready: true, run: (ed) => ed.requestAction('importArtwork') },
+  { id: 'file.importSvg', label: 'Import SVG as stitches…', group: 'tools', ready: true, run: (ed) => ed.requestAction('importSvg') },
   { id: 'edit.duplicate', label: 'Duplicate', group: 'tools', keys: ['Ctrl+D'], ready: true, enabled: selected, run: (ed) => ed.duplicate() },
   { id: 'edit.backtrack', label: 'Backtrack', group: 'tools', ready: true, enabled: selected, run: (ed) => ed.backtrack() },
   { id: 'edit.repeat', label: 'Repeat', group: 'tools', ready: true, enabled: selected, run: (ed) => ed.repeat() },
@@ -252,6 +252,8 @@ export const COMMANDS: readonly Command[] = [
   { id: 'pick.colour', label: 'Pick Color', group: 'player', ready: true, run: (ed) => ed.pick('colour') },
   { id: 'player.toggle', label: 'Play / pause', group: 'player', keys: ['Space'], ready: true, enabled: (ed) => ed.doc.objects.length > 0, run: (ed) => ed.playerToggle() },
   { id: 'player.stop', label: 'Stop', group: 'player', ready: true, run: (ed) => ed.playerStop() },
+  { id: 'player.nextObject', label: 'Next object', group: 'player', ready: true, enabled: (ed) => ed.doc.objects.length > 0, run: (ed) => ed.playerStepObject(1) },
+  { id: 'player.previousObject', label: 'Previous object', group: 'player', ready: true, enabled: (ed) => ed.doc.objects.length > 0, run: (ed) => ed.playerStepObject(-1) },
 ];
 
 /** The shortcut string of a key event: modifiers then the key ('Ctrl+Shift+K', 'O', 'Space'). */

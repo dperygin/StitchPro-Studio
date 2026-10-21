@@ -1,4 +1,4 @@
-// Stitch player: play / pause, step, scrub through the needle sequence, speed.
+// Stitch player: play / pause, step by stitch or by object, scrub through the needle sequence, speed.
 
 import type { Editor } from '@stitchpro/editor';
 import { useEditorState } from './useEditor';
@@ -10,6 +10,9 @@ export function PlayerControls({ editor }: { editor: Editor }) {
   const index = p.index ?? total;
   return (
     <div className="player" aria-label="Stitch player">
+      <button type="button" className="tb-button" disabled={!total} onClick={() => editor.playerStepObject(-1)} title="Back one object" aria-label="Previous object">
+        ⏮
+      </button>
       <button type="button" className="tb-button" disabled={!total} onClick={() => editor.playerStep(-1)} title="Back one stitch">
         ◀
       </button>
@@ -18,6 +21,9 @@ export function PlayerControls({ editor }: { editor: Editor }) {
       </button>
       <button type="button" className="tb-button" disabled={!total} onClick={() => editor.playerStep(1)} title="Forward one stitch">
         ▶|
+      </button>
+      <button type="button" className="tb-button" disabled={!total} onClick={() => editor.playerStepObject(1)} title="Forward one object" aria-label="Next object">
+        ⏭
       </button>
       <button type="button" className="tb-button" disabled={p.index === null} onClick={() => editor.playerStop()} title="Stop (show everything)">
         ■

@@ -55,6 +55,7 @@ import {
   type Point,
   type RGB,
   type ShapeKind,
+  type Artwork,
   type StitchDocument,
   type StitchObject,
   type StitchSettings,
@@ -98,7 +99,21 @@ export type ChangeKind = 'base' | 'live' | 'overlay' | 'state';
 export type ChangeListener = (kind: ChangeKind) => void;
 
 /** Things only the host app can do (file pickers, downloads, dialogs). */
-export type HostAction = 'new' | 'open' | 'save' | 'saveAs' | 'export' | 'settings' | 'dialog' | 'text' | 'fontEditor';
+export type HostAction =
+  | 'new'
+  | 'open'
+  | 'save'
+  | 'saveAs'
+  | 'export'
+  | 'settings'
+  | 'dialog'
+  | 'text'
+  | 'fontEditor'
+  | 'importMachine'
+  | 'importArtwork'
+  | 'importSvg'
+  | 'exportSvg'
+  | 'print';
 export type ActionListener = (action: HostAction, arg?: unknown) => void;
 
 /** Copied objects, shared between the tabs of one app. */
@@ -1517,6 +1532,46 @@ export class Editor {
     this.useColour(color, slot?.thread ?? thread);
   }
 
+  /**
+   * Adds a tracing picture (an image data URL of pxWidth x pxHeight pixels) centred in the
+   * hoop at 96 pixels per inch, shrunk to fit the hoop. Returns its id.
+   */
+  addArtwork(name: string, src: string, pxWidth: number, pxHeight: number): number {
+    const mmPerPx = 25.4 / 96;
+    const fit = Math.min(1, this.doc.hoopWidth / (pxWidth * mmPerPx), this.doc.hoopHeight / (pxHeight * mmPerPx));
+    const width = pxWidth * mmPerPx * fit;
+    const height = pxHeight * mmPerPx * fit;
+    const id = this.doc.artwork.reduce((m, a) => Math.max(m, a.id), 0) + 1;
+    this.doc.artwork = [...this.doc.artwork, { id, name, src, x: -width / 2, y: -height / 2, width, height, opacity: 0.5, visible: true, locked: false }];
+    this.commit('Import artwork');
+    return id;
+  }
+
+  /** Changes a picture's placement, opacity, lock or visibility. */
+  updateArtwork(id: number, patch: Partial<Omit<Artwork, 'id' | 'src'>>): void {
+    const i = this.doc.artwork.findIndex((a) => a.id === id);
+    if (i < 0) return;
+    this.doc.artwork = this.doc.artwork.map((a) => (a.id === id ? { ...a, ...patch } : a));
+    this.commit('Artwork');
+  }
+
+  removeArtwork(id: number): void {
+    if (!this.doc.artwork.some((a) => a.id === id)) return;
+    this.doc.artwork = this.doc.artwork.filter((a) => a.id !== id);
+    this.artworkPixels.delete(id);
+    this.commit('Remove artwork');
+  }
+
+  /** Adds new objects at the end of the sequence and selects them (imports). Returns their ids. */
+  insertObjects(news: readonly NewObject[], label: string): number[] {
+    const made = news.map((n) => this.addObject(createObject(this.doc, n)).id);
+    if (made.length) {
+      this.setSelection(made);
+      this.commit(label);
+    }
+    return made;
+  }
+
   setArtworkPixels(id: number, pixels: ArtworkPixels | null): void {
     if (pixels) this.artworkPixels.set(id, pixels);
     else this.artworkPixels.delete(id);
@@ -1630,6 +1685,19 @@ export class Editor {
 
   playerStep(n: number): void {
     this.playerSeek((this.player.index ?? this.totalStitches()) + n);
+  }
+
+  /** Object-by-object: to the end of the current object (+1) or the start of the previous one (-1). */
+  playerStepObject(dir: 1 | -1): void {
+    const order = this.sewingOrder();
+    const at = this.player.index ?? this.totalStitches();
+    if (dir > 0) {
+      const next = order.find((e) => e.start + e.count > at);
+      this.playerSeek(next ? next.start + next.count : this.totalStitches());
+    } else {
+      const prev = [...order].reverse().find((e) => e.start < at);
+      this.playerSeek(prev ? prev.start : 0);
+    }
   }
 
   playerPlay(): void {

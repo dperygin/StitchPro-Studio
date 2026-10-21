@@ -25,7 +25,8 @@ test('shows the three toolbars, panels, colour bar and status bar', async ({ pag
   await expect(page.getByTestId('palette-slot')).toHaveCount(12);
   await expect(page.getByRole('tab')).toHaveCount(1);
   // Commands built in later steps are shown but disabled.
-  await expect(page.locator('[data-command="file.importSvg"]')).toBeDisabled();
+  await page.getByTestId('menu-tools').click();
+  await expect(page.locator('[data-command="dialog.motifStamp"]')).toBeDisabled();
 });
 
 test('draws a shape, lists it, edits its properties and undoes', async ({ page }) => {
@@ -62,8 +63,9 @@ test('exports a machine file through the server', async ({ page }) => {
   await page.getByRole('button', { name: 'Circle', exact: true }).click();
   await dragOnCanvas(page, [-40, -40], [40, 40]);
   await page.getByTestId('menu-file').click();
-  const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export DST' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('dialog', { name: 'Export machine file' }).getByRole('button', { name: 'Export' }).click();
   const file = await download;
   expect(file.suggestedFilename()).toBe('Untitled.dst');
   await expect(page.getByTestId('status')).toHaveText('Exported DST');

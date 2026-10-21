@@ -786,3 +786,53 @@ body,
 .error {
   color: var(--danger);
 }
+
+/* Artwork rows */
+.artwork-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.artwork-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+.artwork-row .artwork-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artwork-row input[type='range'] {
+  width: 60px;
+}
+
+/* Export dialog */
+.also-export {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  border: 1px solid var(--border, #d0d4da);
+  border-radius: 4px;
+  margin: 6px 0;
+  padding: 4px 8px;
+}
+.dialog h3 {
+  margin: 10px 0 4px;
+  font-size: 13px;
+}
+.export-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 0;
+}
+.export-summary dt {
+  color: var(--muted);
+}
+.export-summary dd {
+  margin: 0;
+}
