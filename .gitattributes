@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.tch -text
+*.clr -text
+*.spf text eol=lf

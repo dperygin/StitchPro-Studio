@@ -1,0 +1,78 @@
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --border: #d0d4da;
+  --text: #1d2330;
+  --muted: #6b7280;
+  font-family: system-ui, 'Segoe UI', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header h1 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.server {
+  font-size: 13px;
+}
+.server.online {
+  color: #15803d;
+}
+.server.offline {
+  color: #b91c1c;
+}
+
+.toolbars,
+.palette-bar {
+  min-height: 32px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.canvas {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  outline: none;
+}
+
+.properties-panel {
+  width: 280px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+}

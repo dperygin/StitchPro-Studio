@@ -1,0 +1,942 @@
+STITCHPRO STUDIO - REBUILD PROMPTS
+==================================
+
+How to use this file
+--------------------
+Paste the prompts into an AI coding assistant one at a time, in order. Wait
+until each step builds and its tests pass before going on. Every prompt
+assumes the work of the prompts before it. Where a prompt names an algorithm
+or a math method, ask the assistant to use exactly that method with the
+numbers given: that is what makes the stitches come out the same.
+
+Things you supply yourself (not included here):
+- Thread colour charts (.tch files) from the thread makers you use.
+- Any TrueType/OpenType fonts beyond the open-licensed ones the app bundles.
+- Test designs of your own.
+
+
+====================================================================
+PROMPT 1 - WHAT WE ARE BUILDING
+====================================================================
+
+I want to build "StitchPro Studio", a browser-based embroidery digitizing
+editor. A user draws shapes (or brings in pictures, SVG artwork, typed text
+or existing machine files), chooses how each shape is stitched, sees the
+exact needle sequence on screen, and downloads a machine embroidery file
+(DST, PES, EXP, JEF, VP3, XXX).
+
+Product rules:
+- It will be a hosted web product. Designing and previewing are free;
+  downloading the machine file will be paid per download (one payment
+  covers every format of one design; stored designs can be downloaded
+  again free). Accounts and payments come much later. For now everything
+  runs locally and every download is allowed, but leave a single
+  "entitled(plan)" check on the server where the paywall will go.
+- The machine-file writer must only ever run on the server, never in the
+  browser (a browser writer would bypass the paywall). The browser sends
+  the finished needle sequence; the server writes the file.
+- Everything is stored in millimetres. Inches are only a display/input
+  preference. y grows downward everywhere (screen convention).
+- The stitch engine and the editor must be separate, reusable packages so
+  the editor can later be embedded inside another web product.
+- Native design files use the extension .sps; native embroidery fonts use
+  .spf.
+- No sequin, bead or rhinestone features.
+- I develop on Windows: every command must work in PowerShell/cmd.
+
+Technology:
+- TypeScript monorepo with npm workspaces: engine, editor, web.
+- engine: pure TypeScript plus JSTS (JavaScript port of the GEOS
+  computational-geometry library) for polygon operations. No DOM, no
+  framework, no network, no global state - it must run in a Web Worker.
+- editor: framework-free TypeScript; Canvas 2D rendering; opentype.js for
+  reading font files.
+- web: React + Vite app shell; jsPDF for PDFs; utif2 for TIFF pictures;
+  open-licensed (SIL OFL) fonts from the @fontsource packages.
+- server: Python FastAPI + uvicorn + pyembroidery (MIT licensed).
+- Tests: Vitest (engine, editor), pytest (server), Playwright (browser).
+- I am providing thread charts downloaded from the melco website and freely available for embroidery software. It is located in the folder /threadcharts. Please make a note of it in the docs. Here is the website. https://melco.zendesk.com/hc/en-us/articles/360027079632-Adding-and-Updating-Thread-Charts-in-DesignShop-Melco-OS-and-Bravo-OS
+
+Hard engineering rules (keep them for every later prompt):
+1. Machine-file writing stays on the server.
+2. The engine stays pure: plain data in, plain data out.
+3. One place for geometry: all curve math in engine/src/path.ts; all
+   polygon operations (union, buffer/offset, clip, covers) in
+   engine/src/geometry.ts.
+4. Never recompute or redraw everything on a mouse move. Each object's
+   stitches are cached by (object id, version); every change to an object
+   bumps its version. Designs can reach 100,000+ stitches.
+5. All editing logic lives in the editor package; the React shell only
+   calls the editor's public API and re-renders when the editor says it
+   changed.
+
+Do not write code yet. Confirm the plan back to me in a short summary.
+
+
+====================================================================
+PROMPT 2 - FOLDER STRUCTURE AND ESSENTIAL FILES
+====================================================================
+
+Create this structure with minimal working contents (empty modules that
+export placeholders are fine), so typecheck, unit tests and the dev server
+all run:
+
+stitchpro-studio/
+  package.json            workspaces ["engine","editor","web"]; scripts:
+                          dev (node scripts/dev.mjs), server (node server/run.mjs),
+                          build, e2e, test (all workspace tests + server tests),
+                          typecheck (all workspaces)
+  .gitignore              node_modules, dist, test-results, playwright-report,
+                          __pycache__, .venv, and these local-only folders:
+                          /fonts_tt/ (my own TrueType fonts), /fonts_spf/
+                          (fonts saved from the font editor), /temp/
+  README.md               how to install, run and test (Windows commands)
+  scripts/
+    dev.mjs               starts the server (port 8000) and Vite (5173) together;
+                          if Python is missing the web app still runs
+  engine/
+    package.json          @stitchpro/engine, dependency jsts, dev: vitest, typescript
+    tsconfig.json
+    src/index.ts          re-exports every module
+    src/types.ts          stitch types, settings and defaults
+    src/document.ts       document model, objects, palette, stitch cache
+    src/project.ts        .sps load/save
+    src/path.ts           curve math and polyline helpers
+    src/geometry.ts       JSTS wrapper: every polygon operation
+    src/generate.ts       picks the generator per stitch type; underlay
+    src/columns.ts        satin, zigzag, E stitch, two-rail satin, column
+    src/fill.ts           tatami fill, radial fill, fill underlay, travel
+    src/turning.ts        turning fills (stitch angle lines)
+    src/stitchlib.ts      run styles, raised satin, contour, stipple, cross stitch
+    src/motifs.ts         motif library, motif line, motif fill, stamps
+    src/text.ts           lettering layout
+    src/spf.ts            native font format
+    src/autodigitize.ts   letter outline -> draft satin columns
+    src/export.ts         export plan (needle commands) and machine marks
+    src/transforms.ts     move/rotate/scale/skew/mirror and copy tools
+    src/shapes.ts         standard shapes
+    src/knockout.ts       knockout overlaps, column cutting, partial applique
+    src/splice.ts         cut objects along a line
+    src/weld.ts           merge shapes; "what an object covers"
+    src/laydown.ts        laydown under the design
+    src/vector.ts         SVG path data -> stitch objects
+    src/threads.ts        .tch charts and colour matching
+    src/hoops.ts          hoop sizes
+    src/report.ts         worksheet data
+    src/tiling.ts         printing over several pages
+    test/                 Vitest unit tests
+  editor/
+    package.json          @stitchpro/editor, deps @stitchpro/engine, opentype.js
+    tsconfig.json
+    src/index.ts
+    src/editor.ts         the Editor class (tools, selection, commands, undo)
+    src/renderer.ts       Canvas 2D renderer
+    src/input.ts          wires pointer/keyboard/wheel events to the Editor
+    src/view.ts           zoom/pan transform
+    src/history.ts        undo/redo snapshots
+    src/hittest.ts        shape cache and hit testing
+    src/fonts.ts          font library (opentype.js + native fonts)
+    src/fonteditor.ts     font editing session
+    src/svgexport.ts      SVG export
+    src/units.ts          mm/inch conversion (the only place)
+    src/opentype.d.ts     type declarations for opentype.js
+    test/                 editor behaviour tests driven by fake pointer/key events
+  web/
+    package.json          @stitchpro/web: react, react-dom, jspdf, utif2,
+                          @fontsource fonts; dev: vite, @vitejs/plugin-react,
+                          @playwright/test, typescript
+    tsconfig.json
+    index.html
+    vite.config.ts        port 5173; proxy /api -> http://127.0.0.1:8000
+                          (port from env STITCHPRO_API_PORT for tests)
+    playwright.config.ts  starts its own web (5174) and server (8001);
+                          viewport 1400 x 860; Chromium
+    src/main.tsx          React entry
+    src/App.tsx           layout, tabs, dialogs, global keys
+    src/useEditor.ts      subscribe React to editor changes
+    src/Toolbars.tsx      the three toolbars and menus
+    src/PropertiesPanel.tsx
+    src/Dialogs.tsx       all tool dialogs
+    src/ObjectList.tsx    sequence list
+    src/StitchList.tsx
+    src/PaletteBar.tsx    colour bar
+    src/PlayerControls.tsx
+    src/DesignTabs.tsx
+    src/CanvasView.tsx
+    src/Scrollbars.tsx
+    src/ArtworkPanel.tsx
+    src/FontPicker.tsx
+    src/FontEditorPanel.tsx
+    src/SizeFields.tsx
+    src/Settings.tsx
+    src/SpecialChars.tsx
+    src/TatamiGallery.tsx
+    src/ThreadPicker.tsx
+    src/icons.tsx
+    src/fonts.ts          bundled font lists
+    src/threads.ts        loads every .tch file in src/threads/
+    src/artwork.ts        reading pictures
+    src/svgImport.ts      reading SVG safely
+    src/machineImport.ts
+    src/saveFile.ts       Save / Save as
+    src/autosave.ts       IndexedDB autosave
+    src/viewPrefs.ts      localStorage preferences
+    src/worksheet.ts      PDFs and PNG output
+    src/styles.css
+    src/spf/              bundled native fonts (.spf)
+    src/threads/          thread charts (.tch) that I supply
+    e2e/                  Playwright tests
+  server/
+    requirements.txt      fastapi, uvicorn, pyembroidery, pytest, httpx
+    run.mjs               creates server/.venv on first run, then starts
+                          uvicorn on 127.0.0.1:8000 (or runs pytest with "test")
+    stitchpro_server/__init__.py
+    stitchpro_server/main.py     the API
+    stitchpro_server/writer.py   export plan -> machine file
+    stitchpro_server/reader.py   machine file -> needle runs
+    stitchpro_server/fonts.py    saved native fonts
+    tests/
+
+Show me the commands to install and to run dev, typecheck and tests on
+Windows.
+
+
+====================================================================
+PROMPT 3 - DATA MODEL AND DEFAULTS (engine/src/types.ts, document.ts)
+====================================================================
+
+Build the data model.
+
+Point = [x, y] in mm. PathNode = { x, y, type: 'corner' | 'curve',
+width: number | null } (width = this node's column width; null = the
+object's satin width).
+
+Stitch types (value - label): running - Run; satin - Satin; zigzag -
+Zigzag; e_stitch - E Stitch; motif_line - Motif; manual - Manual;
+radial_satin - Two-Rail Satin (also used by the Column tool); fill -
+Tatami; satin_fill - Satin fill; outline - Radial Fill; motif_fill - Motif
+Fill; contour - Contour; stipple - Stipple; cross_stitch - Cross Stitch;
+laydown - Laydown.
+Groups: column types = satin, zigzag, e_stitch. Area types = fill, outline,
+motif_fill, contour, stipple, cross_stitch, satin_fill, laydown. Row fills =
+fill, satin_fill. Spaced column types = satin, zigzag, e_stitch,
+radial_satin. Underlay types = fill, satin, radial_satin, satin_fill.
+
+StitchSettings with defaults:
+stitchType running; stitchLength 3.0; runStyle single (single, triple,
+backstitch, stemstitch, sculpture); stemWidth 1.0; satinWidth 3.0;
+cornerMode auto (none, mitre, cap, auto); mitreBelowDeg 120; capBelowDeg
+45; satinDensity 0.4; pairedRails false; raisedLayers 1; stitchShortening
+true; columnShortening false; autoSpacing true; autoSplit true; splitLength
+7.0; zigzagSpacing 2.0; eSpacing 2.5; eFlip false; fillAngle 0;
+fillRowSpacing 0.4; fillStitchLength 4.0; fillStagger true; fillPattern
+thirds; embossWidth 6; embossHeight 6; rippleOutward false; stippleSpacing
+2.5; crossSize 2.5; crossDouble false; outlineSpacing 0.6;
+outlineStitchLength 2.5; motifName wave; motif2Name ''; motifLength 4.0;
+motifWidth 3.0; motifGap 0; motifRowSpacing 4.0; motifRowOffset 0.5;
+motifColumnOffset 0; motif2Scale 1; gradedDensity false; gradedEndDensity
+1.2; raggedMode none (none, random, periodic); raggedAmount 0.8;
+raggedPeriod 4.0; pullCompensation 0.2; underlayEnabled true; underlayType
+auto (none, auto, center, edge, zigzag, double-zigzag, tatami,
+double-tatami, and the legacy combinations center+zigzag, edge+zigzag,
+edge+tatami); underlay2Type none; underlaySpacing 2.0; underlayAngle 90;
+underlayInset 0.3; underlayStitchLength 2.5; underlayStartMargin 0.3;
+underlayEndMargin 0.3; underlayZigzagAngle 90; underlay2Spacing,
+underlay2Angle, underlay2Inset, underlay2StitchLength,
+underlay2StartMargin, underlay2EndMargin, underlay2ZigzagAngle with the
+same defaults; travelOnEdge true; laydownLayers 2; laydownAngle2 90.
+
+StitchObject: id, name, points (PathNode[]), settings, color [r,g,b],
+closed, visible, holes (PathNode[][]), fillStart/fillEnd (entry/exit
+Point or null), autoEntry (true), locked, groupId, customStitches (hand
+edits, Point[] or null), rail2 (PathNode[]), stopAfter, hoopOut (Point or
+null), textMeta (lettering data, see prompt 16), stitchAngles
+([Point, Point][]), thread ({chart, code, name} or null), version.
+
+Document: name 'Untitled'; objects (order = stitch-out order); artwork
+(tracing pictures: id, name, src data URL, x, y, width, height, opacity
+0.5, visible, locked); hoopWidth 100; hoopHeight 100; hoopShape rectangle
+(rectangle, circle, roundrect); hoopCorner 0; hoopId ''; threadChart '';
+palette (12 default slots {color, thread}); guides ({axis 'h'|'v', pos});
+rulerOrigin [0,0]; autoJump true; autoJumpThreshold 12.0; autoTrim true;
+trimThreshold 3; closestJoin true; joinDistance 3; tieStitches true;
+minStitch 0.3; trimJumps 3; motifs (the project's own); nextObjectId
+(document-owned id counter, never a global).
+
+Default palette: black, white, (200,16,46), (255,130,0), (255,205,0),
+(0,132,61), (0,94,184), (102,45,145), (236,0,140), (117,76,41),
+(140,140,140), (0,170,165). Every colour an object uses must always have
+a palette slot (append missing ones in stitch-out order).
+
+Stitch cache: Map keyed by object id, holding (version, project motifs,
+stitches). computeStitches(o) returns hand edits if any, else underlay
+then top stitching.
+
+Write unit tests for defaults, ids, palette sync and the cache.
+
+
+====================================================================
+PROMPT 4 - THE .SPS PROJECT FILE (engine/src/project.ts)
+====================================================================
+
+Save and load designs as pretty-printed JSON with snake_case keys.
+
+Document keys: name, hoop_width_mm, hoop_height_mm, hoop_shape,
+hoop_corner_mm, hoop_id, thread_chart, palette, guides, ruler_origin,
+auto_jump_enabled, auto_jump_threshold_mm, auto_trim_enabled,
+trim_threshold_mm, closest_join, join_distance_mm, tie_stitches,
+min_stitch_mm, trim_jumps, motifs, artwork, objects.
+Object keys: id, name, points [{x, y, node_type, width}], holes,
+fill_start, fill_end, auto_entry, locked, group_id, custom_stitches,
+rail2, stop_after, hoop_out, text_meta, stitch_angles, thread, closed,
+visible, color_rgb, settings (every setting in snake_case).
+
+Loading must be tolerant: missing fields get defaults, unknown fields are
+ignored, duplicate ids get new ones, a node may be a bare [x, y] (corner),
+missing auto_entry = true unless fill_start/fill_end are set, a file with
+no palette gets the colours it uses, artwork whose src isn't an image data
+URL is dropped, unknown enum values are an error with a readable message.
+Test a round trip of every field.
+
+
+====================================================================
+PROMPT 5 - CURVE MATH (engine/src/path.ts)
+====================================================================
+
+Implement:
+- materializePath(nodes, closed, resolution = 0.4 mm): straight between
+  corner nodes; a segment touching a curve node is a cubic Bezier curve
+  whose control points follow Catmull-Rom spline tangents, placed one
+  third of the segment length from each end. Corner nodes always stay
+  sharp. Flatten curves by arc length about every 0.4 mm.
+- materializeSegments: the same, one dense piece per node-to-node segment.
+- materializeWidths: per-point column width, linearly interpolated by
+  arc length along each segment.
+- flattenBezier (quadratic and cubic) and flattenArc (SVG elliptical arc,
+  following the SVG 1.1 implementation notes for endpoint-to-centre
+  conversion and radius correction).
+- cumulative lengths, pointAt(path, d), resamplePolyline (fixed or
+  function spacing), resampleWithValues (carry widths along by linear
+  interpolation), resampleKeepingCorners (always a needle point on every
+  sharp corner), findCorners (vertices turning sharply; only real corner
+  vertices), restartRing (rotate a closed polyline to start at the point
+  nearest a given point), trimEnds (shorten/extend the ends by mm).
+- douglasPeucker: the Ramer-Douglas-Peucker line simplification.
+- smoothPath(nodes, closed, precision): fewest nodes that keep the line
+  within `precision` mm: corners stay corner nodes; between corners use the
+  fewest curve nodes found by Ramer-Douglas-Peucker with a tightening
+  tolerance until the curve stays within precision; per-node widths carry
+  over; unchanged if nothing is saved.
+- Python-compatible round-half-to-even and floored modulo helpers.
+Unit-test each with small exact cases.
+
+
+====================================================================
+PROMPT 6 - POLYGON OPERATIONS (engine/src/geometry.ts)
+====================================================================
+
+Wrap JSTS so no other file touches it. Provide: polygon from rings
+(outline + holes), pieces and rings of a region, buffer (polygon offset /
+Minkowski sum with a disc; round or mitre joins), covers, contains,
+clip a line to a polygon, the parts of a line outside a region, nearest
+point / distance, offset outlines of a closed shape, offset an open line
+to one side (mitre joins, simplified to 0.05 mm), shoelace-formula ring
+area and orientation, ring nesting into shells and holes (even-odd
+containment), union of many areas (unary union; on failure repair each
+with a zero-width buffer), split a region by a line (node the outline with
+the line, then the JSTS Polygonizer; keep faces inside the region; on a
+noding failure subtract the line buffered by 0.005 mm), band region
+(a line buffered by a half width), region width = 2 x area / perimeter,
+difference for knockouts, and FAST rasterized covers tests
+(fastAreaCovers, fastBandCovers: rasterize once on a 0.2 mm grid, then
+answer "is this move covered" by sampling) for code that checks many
+moves. Note: JSTS PreparedGeometry is broken in v2.12; use plain covers.
+
+
+====================================================================
+PROMPT 7 - SPACING CONVENTION AND RUNNING STITCH STYLES
+====================================================================
+
+Spacing convention (important): tatami spacing is the distance between
+two FORWARD rows, satin spacing between two FORWARD stitches, so
+neighbouring lines are half that apart. Add sewnSpacing(settings) that
+halves fillRowSpacing for tatami and laydown, and satinDensity (and
+gradedEndDensity) for satin, two-rail satin and satin fill, before any
+generator runs.
+
+Running stitch (engine/src/stitchlib.ts): resample the path every
+stitchLength. Styles:
+- triple: start point, then for each stitch: forward, back, forward.
+- sculpture: odd stitches triple, even stitches single.
+- backstitch: first point, then for i >= 2: point i, point i-1; then the
+  last point.
+- stemstitch (a rope): len = max(0.5, stitchLength), half = max(0.1,
+  stemWidth/2); for d = 0, len/2, len, ... while d + len <= total: output
+  the point at d offset half to the left, then the point at d + len offset
+  half to the right (normals from points 0.1 mm either side).
+Raised satin: for layer l = layers-1 down to 1, a satin with width x
+(1 - 0.15 l) and spacing x 2; then the normal satin.
+
+
+====================================================================
+PROMPT 8 - SATIN COLUMNS (engine/src/columns.ts)
+====================================================================
+
+Satin along a centreline with a width per node.
+
+1. Samples: walk the centreline every spacing mm (resampleWithValues);
+   at each sample the centre, the unit normal (from the neighbours) and
+   the width. Graded spacing: spacing changes linearly from satinDensity
+   to gradedEndDensity over the whole column.
+2. Automatic spacing (satin with autoSpacing): curvature = turn angle per
+   unit length, averaged over a 1 mm window (moving average); outer(d) =
+   min(2.5, 1 + curvature x width/2) so spacing is measured at the OUTSIDE
+   edge of curves; narrow factor = 1 for width >= 3, else
+   1 + ((3 - max(width, 1)) / 2) x 0.2. step = spacing x narrow / outer.
+3. Sharp bends hidden by curve nodes ("sharpenBends", before corners):
+   measure the angle a-p-c with a and c at reach = clamp(0.75 width, 0.8,
+   4) mm either side; a point is a bend if that angle < max(mitreBelowDeg,
+   capBelowDeg) AND at least 55 % of the turn happens within reach/3; take
+   the sharpest point of each run, skip existing corners; replace the
+   rounded stretch (0.6 x reach either side) by the line-line
+   intersection of the two sides (if it lies ahead and within 2 x reach).
+   On closed paths first move the seam as far as possible from corners.
+4. Corners: split the centreline into straight legs at sharp corners
+   (auto mode: only corners whose angle between the sides is below
+   max(mitreBelowDeg, capBelowDeg)). Per corner: dIn, dOut, mitre line
+   normal = normalise(dIn + dOut). Mitre when (mode mitre and turn <= 120)
+   or (mode auto and angle >= capBelowDeg); otherwise cap.
+   - Rungs of each leg are square to it; within clipRadius = (width/2 +
+     pull) x 4 + spacing of a corner they are clipped to their side of the
+     mitre line (a half-plane test, cut at the crossing point).
+   - Mitre: extend the legs to the mitre point; extension length =
+     half-width x tan(turn/2) computed as half x |cross| / (1 + dot).
+   - Cap: a fan of rungs round the outside: angles from the incoming to the
+     outgoing outer normal, outer end at radius width/2 + pull, inner end on
+     a small arc of radius min(0.5, width/4), steps = ceil(radius x |angle|
+     / spacing).
+   - Auto mode drops corner stitches shorter than 0.5 mm.
+5. Stitches: one per rung, alternating edges (side = (i + firstSide) mod
+   2), pull compensation pushes both ends out. Ragged edge: pull the edge
+   point in by min(ragged(d, side), 0.9 x half-width), where
+   periodic: amount x (0.5 - 0.5 cos(2 pi (d/period + side/2)));
+   random: amount x mulberry32(round(d x 1000) x 2 + side) (mulberry32 is a
+   seeded 32-bit pseudo-random number generator; seeds are integers, so
+   designs always sew the same).
+6. Stitch shortening (satin): if the end of stitch i lands closer than 0.6
+   x (2 x spacing) to the end two stitches back on the same edge (and that
+   one wasn't shortened), stop it 35 % of the way across instead.
+7. Auto split: a stitch longer than splitLength gets n - 1 extra points,
+   n = ceil(len / (0.8 x splitLength)), each shifted by
+   ((i x 0.6180339887498949) mod 1 - 0.5) x 0.5/n - a golden-ratio
+   (Weyl) low-discrepancy sequence so splits never line up.
+8. Entry/exit side: if the last stitch ends on the wrong side, add one
+   stitch back across.
+Zigzag: same rungs, spacing zigzagSpacing/2, no satin-only steps.
+E stitch: per rung output base, tip, base (eFlip swaps the edges), spacing
+eSpacing.
+Test straight, tapered, mitred, capped and heart-shaped satins.
+
+
+====================================================================
+PROMPT 9 - TWO-RAIL SATIN AND THE COLUMN TOOL
+====================================================================
+
+Two-rail satin: align rail 2 so its ends are nearest rail 1's ends; walk
+both rails by the same FRACTION of their length (arc-length
+parameterisation), spacing measured on the longer rail; stitches alternate
+rails; pull compensation and ragged edge as in prompt 8.
+Column tool objects (pairedRails): node i of rail 1 pairs with node i of
+rail 2; each pair is a rung; sew piece by piece between rungs with steps =
+max(1, round(longer piece length / spacing)), so the stitch angle turns
+smoothly from rung to rung.
+Stitch angle lines on these: for each line, intersect the infinite line
+with each rail polyline (line-segment intersection; take the crossing
+nearest the line's middle); a line crossing both rails becomes an extra
+rung; merge with the Column's own rungs (own rungs win when two are within
+0.05 mm or would cross); cut both rails at the rungs (sub-paths by arc
+length) and sew with the Column method.
+Column shortening (columnShortening, default OFF): the shortening rule of
+prompt 8, using the far rail point of each rung as the "other end".
+Underlay for rails: rungs every step along the longer rail, inset at both
+ends (never under 0.2 mm), margins at the start/end; edge run = down one
+side, back the other; zigzag = across rungs then a centre run back (or a
+second crossing zigzag); slant via underlayZigzagAngle.
+
+
+====================================================================
+PROMPT 10 - TATAMI FILL (engine/src/fill.ts)
+====================================================================
+
+1. Rotate the shape (with holes) by -fillAngle so rows are horizontal.
+2. Sections by scanline polygon filling with the even-odd rule: rows every
+   spacing (after halving) from the top; nudge a row 1e-6 mm off any
+   horizontal edge; a row's span joins the section above only if they
+   overlap one-to-one, else a new section starts.
+3. Each section can be sewn 4 ways (top-down or bottom-up x first row left
+   or right); the first (forward, left to right) wins ties. Pull
+   compensation extends row ends.
+4. Needle points on a shared grid fillStitchLength apart, shifted per row
+   (row number counted from y = 0); row ends always sewn; grid points
+   within a quarter stitch of an end skipped. Row phase per pattern:
+   thirds row mod 3 / 3 (default); quarters row mod 4 / 4; fifths
+   ((row mod 5) x 2 mod 5) / 5; brick row mod 2 / 2; random = a repeatable
+   integer hash of the row; diagonal = offsets A 0.3 / B 0.6 alternating
+   (frac(floor(row/2) x (A+B) + (odd ? A : 0))); diagonal-left 0.7 / 0.4;
+   chevron eighths 0,1,2,3,4,3,2,1; herringbone 0,2,4,6,0,6,4,2; basket
+   0,0,0,0,4,4,4,4; embossed patterns (diamonds, waves, zigzag, stripes,
+   scales) = thirds plus extra needle points where the row crosses a carved
+   shape of one repeat embossWidth x embossHeight (diamonds: diagonal
+   lines; waves: a sine; zigzag: a triangle wave; stripes: vertical lines;
+   scales: circle arcs in half-height bands, alternate bands shifted half a
+   repeat); a carved point replaces a grid point beside it. Stagger off =
+   each row divided evenly from its own start.
+5. Travel between sections, staying inside: straight when the segment is
+   covered, otherwise detour along the edge it hits the shorter way round
+   (recursive, depth 16). When both ends lie on the same edge and walking
+   it is at most twice as long, walk the edge.
+6. Travel on edge (default on, top layer): keep a list of sewn section
+   outlines; try, in order, walking the edge inset 0.3 mm the short way,
+   the long way, then straight if covered; accept the first whose length
+   on top of sewn rows (sampled every 0.25 mm, point-in-polygon) is <=
+   max(1, 2 x row spacing); otherwise make a jump marked by repeating the
+   landing point twice. Between different rings, walk to the closest
+   point, hop across, walk on.
+7. Order: greedy nearest section, with a cost of distance + 1000 if the
+   move lands on sewn rows + distance to the next section + 500 if that
+   next move would cross sewn rows. For fills of up to 10 sections, first
+   try a depth-first search with backtracking (budget 400 steps, at most 6
+   candidates per step, nearest first) for an order where every move can
+   travel off sewn rows, the section nearest the exit point last.
+8. A row-to-row move longer than 2 row spacings that is longer than 2
+   stitches or leaves the shape travels instead.
+9. Entry/exit points: start at the entry, finish at the exit (travel there
+   if more than 0.3 mm away). Separate pieces of a fill: each sewn whole,
+   nearest next, the one with the exit last.
+Underlay pass for tatami: the same generator at fillAngle + angle, row
+spacing max(0.5, underlaySpacing), stitch 4.0, no stagger, pull
+compensation = -underlayInset.
+Fill zigzag underlay: one point per row on alternate sides, long stitches
+split at 7 mm; double = second pass on the other ends. Fill edge run:
+running stitch round the outline and holes inset underlayInset.
+
+
+====================================================================
+PROMPT 11 - TURNING FILLS (engine/src/turning.ts)
+====================================================================
+
+Stitch angle lines across a fill: one sets the fill angle; two or more on
+tatami or satin fill turn the rows.
+- Order the lines into a chain (start with the line whose middle is
+  farthest from the others, then nearest-neighbour), and flip lines so
+  consecutive ones point the same way.
+- Rows between neighbouring lines: max(1, round(largest end-to-end
+  distance / spacing)). Row line at row number s: linear interpolation of
+  the two lines' end points; beyond the first/last line, parallel lines
+  stepping away.
+- toLocal(p): find the row s whose line passes through p by bisection
+  (root finding on the sign of the cross product, 60 iterations, 1e-7);
+  x = projection on the row direction, y = s x spacing. No sign change =
+  the lines cross: give up.
+- Map the shape into this straightened frame, check orientation (signed
+  area via the shoelace formula; a flipped sign means the warp folds: give
+  up), run the ordinary tatami there with angle 0, map stitches back.
+- Giving up = sew with the single fill angle.
+
+
+====================================================================
+PROMPT 12 - THE OTHER FILLS
+====================================================================
+
+- Satin fill: tatami rows at satinDensity spacing with no needle points
+  between row ends, auto split on, turning like tatami.
+- Radial fill (outline stitch): rings inset by outlineSpacing each time
+  (polygon offset), each started at the vertex nearest the last ring's end;
+  pinched pieces finished one at a time, nearest first; rings round holes
+  last; ripple = sew from the centre out.
+- Contour: find the two extreme points of the outline along the fill
+  angle (on flat ends, the one nearest the middle); split the outline into
+  two sides; resample each to 201 points; rows = ceil(widest gap / row
+  spacing); row k = linear interpolation of the two sides at k/rows;
+  alternate direction; resample each row by stitch length.
+- Stipple: grid of cells (spacing c = max(0.8, stippleSpacing)) inside the
+  shape shrunk by c/2; a maze by randomized depth-first search (a random
+  spanning tree, mulberry32 with seed 7); walk the tour round the tree
+  offset a quarter cell to the right of each step; smooth with three
+  passes of Chaikin's corner-cutting algorithm (points at 1/4 and 3/4 of
+  each segment); resample by stitch length.
+- Cross stitch: grid of crossSize squares starting at 0 mm (shared by the
+  design); a square counts if its 4 corners and centre lie inside the
+  shape grown by 0.15 x size; per row, runs of squares: "/" strokes going
+  right, then "\" strokes coming back; crossDouble sews each stroke twice.
+- Motif line: a motif is points in a unit box (x 0..1 along, y -0.5..0.5
+  across, from (0,0) to (1,0)); repeat it along the path scaled to
+  motifLength x motifWidth, stretching slightly so a whole number fits,
+  with motifGap of running stitch between. Built-in motifs: wave, scallop,
+  rickrack, diamond, leaf, cross, loop, triple.
+- Motif fill: rows of motifs at the fill angle, motifRowSpacing apart,
+  every other row shifted by motifRowOffset, every other motif raised by
+  motifColumnOffset x row spacing, optional alternate motif scaled by
+  motif2Scale; only motifs wholly inside are sewn.
+- Laydown: tatami (no stagger) at its spacing and length; with two layers,
+  a second pass at fillAngle + laydownAngle2 starting where the first
+  ended; no underlay.
+
+
+====================================================================
+PROMPT 13 - UNDERLAY AND HOW ONE OBJECT IS SEWN
+====================================================================
+
+Underlay only on tatami, satin fill, satin and two-rail/column, never
+under 2 mm wide (column: average width; fill: 2 x area / perimeter).
+Automatic: column under 4 mm -> edge run; wider -> edge run + zigzag; fill
+under 100 mm2 -> edge run; larger -> edge run + tatami. Up to two layers
+(layer 2 uses the underlay2 settings); each starts where the last ended.
+Column edge run: down one edge inset, back up the other. Column zigzag:
+zigzag down (spacing per edge), centre run back; margins trim the ends.
+Lettering under 5 mm cap height: no underlay.
+
+Sewing one object: underlay layers, then top stitching, joined inside the
+object. A move that would leave a fill, or is longer than 7.5 mm, travels
+along the edge just inside (or straight under the fill when travel on edge
+is off); in columns it runs back along the middle; travel stitches 2.5 mm.
+Closed outlines start at their entry point; open lines sew from the end
+nearer their entry.
+
+"What an object covers" (objectArea): an area's outline and holes, or a
+column's band (nest its edge rings; the outer edge is the shell);
+open lines and manual stitches cover nothing.
+
+
+====================================================================
+PROMPT 14 - EXPORT PLAN (engine/src/export.ts)
+====================================================================
+
+buildExportPlan(doc, stitchesOf) -> { name, threads [{color, name, brand,
+code}], commands [[stitch|jump|trim|stop|color_change, x, y]], autoJump,
+maxStitch, trimJumps }.
+- Split each object into runs at connectors (with auto trim): areas: a
+  move longer than the trim distance crossing open fabric, or a jump mark;
+  running/motif/manual: a move longer than the longest stitch. Columns are
+  one run. Drop stitches shorter than minStitch (keep each run's ends).
+- Between runs: new colour -> tie-off, trim, colour change, jump, tie-in.
+  Farther than trimThreshold -> tie-off, trim, jump, tie-in, UNLESS
+  (a) all but trimThreshold mm of the straight way lies under the next up
+  to 8 same-colour objects still to come (check with the rasterized covers
+  test, sampling every 0.2 mm) -> sew it as 2.5 mm stitches; or (b) closest
+  join: the next object comes within joinDistance of where the last ended
+  -> step to its nearest stitch and run inside it to its entry. Otherwise
+  run straight on (auto trim off: a jump).
+- stopAfter -> stop. hoopOut -> tie-off, trim, jump to the point, stop.
+- Design starts with jump, stitch, tie-in; ends with tie-off and trim.
+  Tie-in/off = two stitches 0.7 mm along the run and back.
+- Also produce "machine marks" for the canvas: start, end, tie-in,
+  tie-off, trim, stop, hoop out, colour change, travel run (with its path).
+Closest join in the editor (on every commit): an object with autoEntry
+starts at its point nearest the previous same-colour object's exit when
+within joinDistance; a row fill's exit moves toward the next object.
+
+
+====================================================================
+PROMPT 15 - THE SERVER (server/stitchpro_server)
+====================================================================
+
+FastAPI on 127.0.0.1:8000.
+- GET /api/health; GET /api/formats (dst, pes, exp, jef, vp3, xxx).
+- POST /api/export/{fmt}: validate the plan (name <= 200 chars, threads
+  <= 1000, maxStitch 0-200, trimJumps 1-10, <= 2,000,000 commands,
+  coordinates within +-2000 mm); call entitled(plan) (always true for now,
+  402 if false); build a pyembroidery pattern with stitch_abs / move_abs
+  (ABSOLUTE coordinates; the relative stitch/move must not be used) in 0.1
+  mm units, trim, stop, color_change, end; threads with colour, name,
+  brand, catalogue number; write with max_stitch = min(plan maxStitch, the
+  format's own limit), long-stitch contingency jump (auto jump) or sew-to,
+  trims on, trim_at = trimJumps; PES as version 6. READ THE FILE BACK and
+  compare its stitch extent with the plan's (tolerance 0.2 mm); mismatch =
+  error. Return the file as an attachment.
+- POST /api/import/{fmt}: raw bytes (<= 20 MB) -> {threads, runs [{thread,
+  points, stop}], stitches}; runs split at jumps, trims, stops and colour
+  changes; two colour changes with nothing between = a stop.
+- GET/POST /api/fonts: list, read and save .spf fonts in fonts_spf/
+  (STITCHPRO_FONTS_DIR overrides; 409 when the name exists unless
+  overwrite=true).
+Write pytest round-trip tests for every format.
+
+
+====================================================================
+PROMPT 16 - EDITOR CORE (editor/)
+====================================================================
+
+An Editor class per open design: new Editor(doc, { fonts, clipboard })
+(fonts and clipboard shared between tabs). Public API: subscribe, changed,
+setStatus, touch(o) (bump version), object, stitches(o), selection,
+selectionOrder (pick order), select, setSelection, toggleSelected,
+selectAll, commit (one undo step: re-plan lettering, closest join, palette
+sync, history), commitSoon (debounced), undo, redo, and one method per
+command of prompts 18-21.
+Tools: select, draw, reshape, stitches (edit needle points), pick (entry,
+exit, colour), angle, measure, letters.
+Undo/redo: snapshots with structural sharing (deep-copy only objects whose
+version changed; share artwork image data).
+Renderer (Canvas 2D): a base layer in an offscreen canvas holding every
+object not being changed (redrawn only when they or the view change); a
+live layer + overlay every frame for dragged objects, selection, nodes,
+handles, guides, rulers, marks; each object's stitches turned into a
+Path2D once per version; one redraw per animation frame. A "SimStitch"
+mode draws thread 0.4 mm thick with shading.
+Interaction constants: snap 8 px; ruler 22 px; nudge 0.5 mm (Shift x10);
+node width step 0.1 mm; drag threshold 4 px; node pick 8 px; object pick
+6 px; double click 400 ms; handle pick 7 px; rotate handle 24 px above
+the box; handle padding 8 px; move handle radius 15 px; paste offset
+2 mm; max skew 70 degrees.
+units.ts is the only mm/inch conversion; stitch settings always show mm.
+Editor tests drive it with fake pointer and key events.
+
+
+====================================================================
+PROMPT 17 - THE SCREEN
+====================================================================
+
+Layout: three toolbars on top; left panel (sequence list, artwork list);
+centre (design tabs, canvas with scroll bars); right panel (Properties,
+optional stitch list); colour bar; status bar (brand, status message,
+total stitches, pointer X/Y).
+Digitize toolbar: Select (O); Open Shape, Closed Shape, Column, Two-Rail
+Satin, Manual; Circle, Rectangle, a Shapes dropdown (triangle, diamond,
+hexagon, star, heart); Outline / Fill mode; outline stitches (Run, Satin,
+Zigzag, E Stitch, Motif); fill stitches (Tatami, Satin fill, Radial Fill,
+Motif Fill, Contour, Stipple, Cross Stitch).
+Edit toolbar: File menu (New, Open, Save, Save as, Import machine file,
+Export, Export SVG, Print: worksheet, placement template, design image),
+Settings, hoop dropdown, Finish, Finish closed, Cancel, Undo, Redo, Cut,
+Copy, Paste, Delete, Reshape (R), Stitch angle (G), Polygon select
+(U), Edit stitches (E), Splice (Ctrl+Shift+K), Add hole, Set entry,
+Set exit, Zoom -/+, Fit, Grid + spacing, Snap, Rulers, Measure, Center in
+hoop, units, SimStitch (S), Machine commands.
+Tools toolbar: Import artwork, Import SVG as stitches, Arrange menu (align
+with the last selected, weld, sequence by colour, back/forward 1 colour,
+optimize colour changes, space evenly), Duplicate, Backtrack, Repeat,
+Closest join (J), Hoop out, Flip, Rotate 15, Skew field, and dialog tools
+(Motif stamp, Array, Mirror, Circle/Kaleidoscope, Insert offset, Add
+border, Auto applique, Smooth curves, Knockout overlaps, Laydown, Fill
+holes, Partial applique, Add text, Edit text, Letters, Font editor, Save
+as motif).
+Properties: name, stitch type, closed, every setting relevant to the type
+(prompt 3), corner settings, node width, tatami pattern gallery
+(thumbnails stitched by the engine), underlay 1 and 2 with only the
+fields each type uses, stitch effects, stop after, hoop out, colour,
+thread chart picker, stitch count; copy/apply properties; size and
+position fields; artwork and hoop-out panels.
+Sequence list: numbered rows in colour blocks, thumbnails, visibility,
+drag to reorder, number box, group/ungroup/lock/unlock/delete, sequence by
+selection, move to start/up/down/end, hoop-out blocks.
+Colour bar: current colour, Pick Color, palette slots, add/remove, hide
+unused, remove unused, machine-command legend, stitch player.
+Keyboard: O, R, G, U, E, S, Z/Shift+Z, 0, J, M, L, A (add text),
+Shift+J (stitch list), Ctrl+R, Ctrl+Shift+K, Tab/Shift+Tab
+(next/previous object), Ctrl+Z/Y, Ctrl+C/X/V/D/A, Ctrl+G/Shift+G,
+Ctrl+S/Shift+S, arrows (Shift x10), Alt+arrows (continuous copy),
+Delete, Enter, Esc, Backspace, Space (toggle node type; play/pause in
+the player), [ and ] (node width). Mouse: left click corner node, right
+click curve node, double click finishes, wheel zooms, middle drag pans.
+While Letters mode is active, its own keys (prompt 20) take priority over
+these single-letter shortcuts.
+
+
+====================================================================
+PROMPT 18 - DRAWING, SELECTING, TRANSFORMING
+====================================================================
+
+- Digitizing with corner/curve nodes, 15-degree constraint with Ctrl,
+  snapping to grid and guides (Alt = free), holes, per-node widths,
+  standard shapes fitted to a dragged box (Ctrl keeps proportions; circle
+  = 12 curve nodes; star inner radius 0.382 x outer).
+- Select by click, Ctrl/Shift-click, box (wholly inside), polygon select
+  (point-in-polygon with the even-odd ray-casting test on every outline,
+  rail and stitch point), Tab/Shift+Tab, groups, lock, hide.
+- Transform: move, resize (corner proportional, side one way; column
+  widths scale by the geometric mean of the two factors; the fill angle
+  turns with the stretch), rotate (Shift 15-degree steps), skew (affine
+  shear x' = x - tan(a) (y - anchorY); diamond handles; Shift 5-degree
+  steps), flip, align with the last selected, space evenly, centre in hoop.
+- Reshape nodes; smooth curves (prompt 5); splice, weld, fill holes,
+  knockout (prompt 21).
+- Copy tools: copy/paste across tabs, duplicate, array, mirror,
+  circle/kaleidoscope (every other copy reflected), continuous copy,
+  insert offset (polygon offset), add border (motif line along an offset),
+  backtrack (copy with reversed node order) / repeat (same order), both
+  with underlay off, copy/apply properties.
+- Sequencing: drag, number box, sequence by selection order, move
+  to start/up/down/end (past whole groups), back/forward 1 colour,
+  sequence by colour, optimize colour changes (an object joins an earlier
+  run of its colour only if its bounding box + 0.5 mm overlaps nothing in
+  between).
+
+
+====================================================================
+PROMPT 19 - COLOUR, THREADS, HOOPS
+====================================================================
+
+- Palette slots, current colour, editing a slot recolours its objects,
+  Pick Color: a click on imported artwork averages a 5 x 5 pixel area of
+  the picture and adds it as a new slot (or picks the slot that has it);
+  elsewhere it takes an object's colour.
+- Thread charts: .tch CSV lines "code, chart, colour name, thread type
+  A-D, R, G, B" (names may contain commas); load every file in
+  web/src/threads/. Colour matching: convert sRGB to CIELAB (D65 white
+  point) and use the CIEDE2000 colour-difference formula; report the worst
+  delta E when above 5.
+- Hoops (sewing field centred on 0,0; only sizes >= 76.2 mm both ways):
+  round 85-190 mm; rounded squares; squares and rectangles from 100 x 100
+  to 297 x 465 (upright and sideways) and long border hoops; magnetic
+  frames; sash frames up to 1200 x 500; a cap frame 150 x 135. Show mm and
+  inches; warn on export when the design is bigger than the hoop.
+
+
+====================================================================
+PROMPT 20 - LETTERING AND NATIVE FONTS
+====================================================================
+
+Text dialog: text, special-character picker (characters the font can
+sew), font picker with live previews and search (native fonts first),
+load a font file (.spf/.ttf/.otf/.woff; WOFF2 isn't readable), capital
+height 1-300 mm, letter spacing, stitch for TrueType fonts (Satin fill =
+auto-digitized columns, the default; tatami fill; satin outline; running
+outline), kerning, alignment (left/centre/right/full), line spacing,
+letter width %, slant, baseline (straight, arc top, arc bottom, a drawn
+custom line), arc radius, sewing order (left to right, right to left,
+centre out: middle letter, right half, back to the middle, left half),
+envelope (arch up/down, bulge, pinch).
+Layout pipeline: place letters (width, spacing, kerning) -> stack and
+align lines -> slant -> envelope -> wrap round the arc; centre on the
+unadjusted layout; every piece carries textMeta so Edit text rebuilds it.
+Letters mode: move/scale/rotate/slant single letters (keys A/D, W/S, Z/X,
+Q/E, C/V, R, Tab, B), stored per letter so others never move.
+Letter planning: for each letter try every order and direction of its
+strokes (up to 5 strokes; open columns from either end, closed strokes
+from 8 points round them); keep the 40 cheapest variants per start/end;
+choose across letters with dynamic programming (a Viterbi-style shortest
+path over the variants); move cost = distance if under the trim distance
+or covered by strokes to come; closest-join step + 1.3 x the run inside;
+otherwise distance + 100 (a trim).
+Native .spf font (JSON): { format "stitchpro-font", version, name,
+license, source, capHeight 1000, sizeRange [min, max] mm, glyphs { char:
+{ advance, objects } }, kerning { pair: units } }; objects in font units
+(baseline y = 0, y down); node widths in font units, other settings in mm.
+Font editor tab: edit a native font letter by letter at 40 mm capital
+height with guide lines, draft from a TrueType font, kerning, test line,
+save to fonts_spf/ through the server.
+Bundle a few native fonts drafted from open-licensed (SIL OFL) fonts.
+
+
+====================================================================
+PROMPT 21 - AUTO-DIGITIZER (engine/src/autodigitize.ts)
+====================================================================
+
+Turn a TrueType letter outline into draft satin columns:
+1. Scale to a 20 mm capital height; nest the outline rings into shapes.
+2. Rasterize each shape at 0.08 mm pixels (3 px padding).
+3. Exact Euclidean distance transform (the Felzenszwalb-Huttenlocher
+   lower-envelope algorithm, run on columns then rows).
+4. Skeletonize with the Zhang-Suen thinning algorithm, then delete
+   "staircase" corner pixels.
+5. Trace the skeleton into a graph: nodes = clusters of pixels whose
+   neighbour count is not 2; edges = pixel runs between nodes; plain loops
+   = cycles.
+6. Prune spurs: up to 4 passes removing a dead-end edge at a junction
+   (degree >= 3) shorter than max(4, 1.3 x the junction's distance value)
+   pixels (0.6 for serif fonts).
+7. Chain edges into strokes: pass straight through 2-way nodes; at
+   junctions pair the edge ends whose directions are most opposite (dot <
+   -0.6), each used once.
+8. Smooth each stroke (moving average of 5); width at each point = 2 x the
+   distance value (minus half a pixel) x 0.08 mm.
+9. Split strokes turning sharper than 75 degrees (measured over 0.75 x
+   width); trim the rounded bit at a cut; the piece ending at a corner runs
+   on to the letter's edge; at V corners sharper than 100 degrees both do;
+   free ends run straight on to the edge.
+10. Each stroke: Ramer-Douglas-Peucker simplification (0.06 mm), then
+    curve/corner nodes, node widths from the nearest measured width; open
+    strokes become Columns (paired rails half the width either side,
+    widened at turns by 1 / cos, at most x 2); closed strokes stay satins.
+11. Small blobs (dots): principal component analysis (the covariance
+    principal axis) of the outline; one short column along it, as wide as
+    the blob at each step. A blob with a hole: a tatami fill.
+12. Sew strokes nearest-first, each from its nearer end.
+Drafts are meant to be fixed by hand in the font editor.
+
+
+====================================================================
+PROMPT 22 - EDITING TOOLS ON SHAPES
+====================================================================
+
+- Knockout overlaps: the selected objects cut away the parts of earlier
+  objects under them. Cutter area = outline (fills) or band (satins);
+  ignore cutters narrower than 2 mm (region width). Dense area fills:
+  polygon difference with the cutters shrunk by an overlap of 1 mm; drop
+  pieces narrower than 1 mm. Satins: cutColumn (sample the middle every
+  0.25 mm; keep runs of samples outside the cutter, at least the minimum
+  length; rebuild each run as a satin or two-rail piece). Open stitches
+  are left as background.
+- Partial applique: a later applique piece's fabric outline cuts the
+  earlier piece's cover satin (cutColumn).
+- Splice (Knife): a cut line; areas split exactly (polygonize the outline
+  noded with the line), pieces ordered nearest-first from the entry with
+  the exit piece last; columns/lines cut by the line thickened 0.13 mm and
+  their ends extended back to the line by ray-segment intersection
+  (within 0.76 mm); slivers under 0.3 mm dropped; manual and hand-edited
+  objects not cut.
+- Weld: union of the selected objects' areas into new objects with the
+  first object's settings (a non-area stitch becomes tatami).
+- Fill holes: each hole becomes a new object with the same settings,
+  grown by an overlap margin (default 0.3 mm).
+- Laydown: union of the design's areas and its lines (each line as a band 0.75 mm either side)
+  grown by an offset (default 2 mm), or a box, or an ellipse through the
+  box corners; a laydown object sewn first.
+- Auto applique: placement run + stop (or hoop out), tack-down (E stitch
+  pointing in, zigzag or run) + stop, cover satin; grouped.
+- Hoop out: after an object, cut, move to a point, stop; shown as an
+  orange block in the sequence list.
+
+
+====================================================================
+PROMPT 23 - IMPORT, EXPORT, PRINT, SAVE
+====================================================================
+
+- Artwork: PNG, JPG, GIF, WebP, BMP, SVG, TIFF (via utif2); scaled to at
+  most 4096 px; other formats refused with advice; opacity, lock, hide.
+- SVG as stitches: sanitize first (remove scripts, foreignObject,
+  images, external links, styles imports, animations, on* attributes);
+  read each shape's final fill, stroke and transform from the browser;
+  filled shapes -> tatami with holes; strokes -> satin when at least
+  1 mm wide, else running; tiny areas skipped; smoothed nodes.
+- Machine file import via the server: each run a Manual object, grouped
+  per colour block.
+- Export dialog: format plus "also export as" tick boxes, machine
+  settings, a summary (stitches, colours, trims, stops, size).
+- Export SVG at real size (shapes or stitches, in thread colours).
+- Design worksheet PDF (size, stitches, colours, stops, trims, thread
+  length and run time at 800 stitches/min, stop sequence, colour film);
+  placement template PDF tiled over pages (Letter, Legal, Tabloid, A5, A4,
+  A3; pages overlap; auto orientation picks fewer pages); PNG picture.
+- Save: in browsers with the File System Access API, Save as opens the
+  system dialog and later saves write back to that file; elsewhere a
+  download. Autosave every open tab to IndexedDB 1.5 s after a change and
+  restore on start. Preferences in localStorage (wrapped in try/catch).
+- Stitch player: play the design stitch by stitch (speed, step,
+  object-by-object, slider).
+
+
+====================================================================
+PROMPT 24 - TESTS AND FINISHING
+====================================================================
+
+- Unit tests for every generator (stitch counts, extents, spacing,
+  maximum stitch length), the export plan, file round trips, text layout,
+  fonts, knockout/splice/weld, threads, hoops.
+- Editor tests driving tools with fake pointer/key events.
+- Server tests for every format (write, read back, compare).
+- Playwright tests for every feature through the real UI, using their own
+  server pair (ports 5174 / 8001) and a temporary fonts folder.
+- Before each commit: typecheck, unit tests, browser tests, and a
+  screenshot check of any UI change.

@@ -1,0 +1,21 @@
+{
+  "name": "stitchpro-studio",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "engine",
+    "editor",
+    "web"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "server": "node server/run.mjs",
+    "build": "npm run build --workspaces --if-present",
+    "e2e": "npm run e2e -w @stitchpro/web",
+    "test": "npm run test --workspaces --if-present && node server/run.mjs test",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+__pycache__/
+.venv/
+.pytest_cache/
+
+# Local-only folders
+/fonts_tt/
+/fonts_spf/
+/temp/
