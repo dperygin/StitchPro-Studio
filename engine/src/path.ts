@@ -102,7 +102,8 @@ export function pointAt(path: readonly Point[], d: number, cum: readonly number[
   return lerp(path[i]!, path[i + 1]!, segLen > 0 ? (d - cum[i]!) / segLen : 0);
 }
 
-function valueAt(values: readonly number[], cum: readonly number[], d: number): number {
+/** A per-vertex value at arc length d, linearly interpolated (clamped to the ends). */
+export function valueAt(values: readonly number[], cum: readonly number[], d: number): number {
   if (values.length === 1 || d <= 0) return values[0]!;
   const total = cum[cum.length - 1]!;
   if (d >= total) return values[values.length - 1]!;
@@ -115,7 +116,7 @@ function valueAt(values: readonly number[], cum: readonly number[], d: number): 
 export type Spacing = number | ((d: number) => number);
 
 /** Arc-length positions: 0, then every spacing (or spacing(d)) mm, then always the end. */
-function walkPositions(total: number, spacing: Spacing): number[] {
+export function arcPositions(total: number, spacing: Spacing): number[] {
   const out = [0];
   if (total <= EPS) return out;
   const step = typeof spacing === 'number' ? () => spacing : spacing;
@@ -124,7 +125,7 @@ function walkPositions(total: number, spacing: Spacing): number[] {
     const s = step(d);
     if (!(s > 1e-6)) throw new Error(`resample: spacing must be positive (got ${s})`);
     d += s;
-    if (d >= total - EPS) break;
+    if (d >= total - 1e-6) break; // float sums like 50 x 0.2 land just short of the end
     out.push(d);
   }
   out.push(total);
@@ -135,7 +136,7 @@ function walkPositions(total: number, spacing: Spacing): number[] {
 export function resamplePolyline(points: readonly Point[], spacing: Spacing): Point[] {
   if (points.length < 2) return points.map((p) => [p[0], p[1]]);
   const cum = cumulativeLengths(points);
-  return walkPositions(cum[cum.length - 1]!, spacing).map((d) => pointAt(points, d, cum));
+  return arcPositions(cum[cum.length - 1]!, spacing).map((d) => pointAt(points, d, cum));
 }
 
 /** Like resamplePolyline, carrying one value per point (e.g. column width) by linear interpolation. */
@@ -147,7 +148,7 @@ export function resampleWithValues(
   if (values.length !== points.length) throw new Error('resampleWithValues: one value per point');
   if (points.length < 2) return { points: points.map((p) => [p[0], p[1]]), values: [...values] };
   const cum = cumulativeLengths(points);
-  const ds = walkPositions(cum[cum.length - 1]!, spacing);
+  const ds = arcPositions(cum[cum.length - 1]!, spacing);
   return { points: ds.map((d) => pointAt(points, d, cum)), values: ds.map((d) => valueAt(values, cum, d)) };
 }
 
@@ -167,7 +168,7 @@ function distinctNeighbour(points: readonly Point[], i: number, dir: 1 | -1, clo
 }
 
 /** Interior angle a-p-c in degrees (180 = straight on). */
-function vertexAngleDeg(a: Point, p: Point, c: Point): number {
+export function vertexAngleDeg(a: Point, p: Point, c: Point): number {
   const ux = a[0] - p[0];
   const uy = a[1] - p[1];
   const vx = c[0] - p[0];
@@ -653,4 +654,20 @@ export function smoothPath(nodes: readonly PathNode[], closed: boolean, precisio
   }
   if (!closed) out.push(nodes[anchors[anchors.length - 1]!]!);
   return out.length < n ? out : (nodes as PathNode[]);
+}
+
+/**
+ * Intersection of the infinite lines a1-a2 and b1-b2, with the parameters along each
+ * (point = a1 + t (a2 - a1) = b1 + u (b2 - b1)); null when parallel.
+ */
+export function lineIntersection(a1: Point, a2: Point, b1: Point, b2: Point): { point: Point; t: number; u: number } | null {
+  const dx = a2[0] - a1[0];
+  const dy = a2[1] - a1[1];
+  const ex = b2[0] - b1[0];
+  const ey = b2[1] - b1[1];
+  const den = dx * ey - dy * ex;
+  if (Math.abs(den) <= EPS) return null;
+  const t = ((b1[0] - a1[0]) * ey - (b1[1] - a1[1]) * ex) / den;
+  const u = ((b1[0] - a1[0]) * dy - (b1[1] - a1[1]) * dx) / den;
+  return { point: [a1[0] + dx * t, a1[1] + dy * t], t, u };
 }

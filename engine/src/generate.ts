@@ -1,8 +1,9 @@
 // Picks the generator per stitch type; underlay.
 
 import type { StitchObject } from './document';
+import { columnStitches } from './columns';
 import { materializePath } from './path';
-import { runningStitch } from './stitchlib';
+import { raisedSatin, runningStitch } from './stitchlib';
 import type { Motif, Point, StitchSettings, StitchType } from './types';
 
 const ROW_SPACED: readonly StitchType[] = ['fill', 'laydown'];
@@ -32,6 +33,13 @@ export function generateTopStitching(o: StitchObject, _motifs: readonly Motif[])
   switch (s.stitchType) {
     case 'running':
       return runningStitch(materializePath(o.points, o.closed), s);
+    case 'satin':
+      return raisedSatin(s.raisedLayers, (widthScale, spacingScale) =>
+        columnStitches(o.points, o.closed, s, 'satin', { widthScale, spacingScale }),
+      );
+    case 'zigzag':
+    case 'e_stitch':
+      return columnStitches(o.points, o.closed, s, s.stitchType);
     default:
       return []; // remaining generators arrive in later steps
   }
