@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { Renderer, attachInput, type Editor } from '@stitchpro/editor';
 
+/** The palette's purple, for selection boxes, handles and nodes on the canvas. */
+const SELECTION_PURPLE = '#783088';
+
 export function CanvasView({ editor }: { editor: Editor }) {
   const ref = useRef<HTMLCanvasElement>(null);
 
@@ -8,6 +11,7 @@ export function CanvasView({ editor }: { editor: Editor }) {
     const canvas = ref.current;
     if (!canvas) return;
     const renderer = new Renderer(editor, canvas);
+    renderer.theme = { ...renderer.theme, selection: SELECTION_PURPLE, node: SELECTION_PURPLE };
     const resize = () => {
       const ratio = window.devicePixelRatio || 1;
       canvas.width = Math.max(1, Math.round(canvas.clientWidth * ratio));
