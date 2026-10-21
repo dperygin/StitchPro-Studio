@@ -2,6 +2,8 @@
 
 import type { StitchObject } from './document';
 import { columnStitches, twoRailStitches } from './columns';
+import { tatamiFill } from './fill';
+import { polygonFromRings, type Region } from './geometry';
 import { materializePath } from './path';
 import { raisedSatin, runningStitch } from './stitchlib';
 import type { Motif, Point, StitchSettings, StitchType } from './types';
@@ -24,6 +26,11 @@ export function sewnSpacing(settings: StitchSettings): StitchSettings {
   return settings;
 }
 
+/** The area an object's outline and holes enclose. */
+export function areaRegion(o: StitchObject): Region {
+  return polygonFromRings(materializePath(o.points, true), o.holes.map((h) => materializePath(h, true)));
+}
+
 export function generateUnderlay(_o: StitchObject, _motifs: readonly Motif[]): Point[] {
   return [];
 }
@@ -40,6 +47,8 @@ export function generateTopStitching(o: StitchObject, _motifs: readonly Motif[])
     case 'zigzag':
     case 'e_stitch':
       return columnStitches(o.points, o.closed, s, s.stitchType);
+    case 'fill':
+      return tatamiFill(areaRegion(o), s, o.fillStart, o.fillEnd);
     case 'radial_satin':
       return twoRailStitches(
         { rail1: o.points, rail2: o.rail2, closed: o.closed, paired: s.pairedRails, stitchAngles: o.stitchAngles },
