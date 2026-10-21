@@ -143,7 +143,10 @@ describe('font editor', () => {
   it('drafts letters from a TrueType font, keeps kerning and makes a test line', () => {
     const s = new FontEditorSession(createNativeFont('Drafted'));
     expect(s.draftFrom(bars, ['A', 'B', 'z'])).toBe(2);
-    expect(s.font.glyphs.A!.objects[0]!.settings.stitchType).toBe('fill');
+    // A bar drafts as one auto-digitized Column.
+    expect(s.font.glyphs.A!.objects).toHaveLength(1);
+    expect(s.font.glyphs.A!.objects[0]!.settings.stitchType).toBe('radial_satin');
+    expect(s.font.glyphs.A!.objects[0]!.rail2.length).toBeGreaterThan(1);
     s.setKerning('AB', -20);
     expect(s.font.kerning.AB).toBe(-20);
     s.setKerning('AB', 0);

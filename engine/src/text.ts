@@ -5,6 +5,7 @@
 // unadjusted layout. Every piece carries textMeta so Edit text can rebuild it, and per-letter
 // adjustments (Letters mode) are stored there so other letters never move.
 
+import { autodigitize } from './autodigitize';
 import { createDocument, createObject, pathNode, type NewObject, type StitchObject, type TextMeta } from './document';
 import { fastAreaCovers, nestRings, uncoveredLength, type CoverRaster } from './geometry';
 import { cumulativeLengths, distance, douglasPeucker, materializePath, pointAt, projectOntoPolyline } from './path';
@@ -224,8 +225,19 @@ const mapNode = (f: (p: Point) => Point, k: number) => (n: PathNode): PathNode =
   return { ...n, x, y, width: n.width === null ? null : n.width * k };
 };
 
+const digitizedCache = new WeakMap<readonly Point[][], { capHeight: number; objects: NewObject[] }>();
+
+/** Auto-digitized drafts of a glyph outline, cached per outline. */
+function digitized(contours: readonly Point[][], capHeight: number): NewObject[] {
+  const hit = digitizedCache.get(contours);
+  if (hit && hit.capHeight === capHeight) return hit.objects;
+  const objects = autodigitize(contours, capHeight);
+  digitizedCache.set(contours, { capHeight, objects });
+  return objects;
+}
+
 /** Pieces for one outline (TrueType) letter. */
-function outlinePieces(contours: readonly Point[][], f: (p: Point) => Point, spec: TextSpec): NewObject[] {
+function outlinePieces(contours: readonly Point[][], f: (p: Point) => Point, spec: TextSpec, capHeight: number, scale: number): NewObject[] {
   const rings = contours.map((c) => c.map(f)).filter((r) => r.length >= 3);
   const nodes = (ring: Point[]) => douglasPeucker([...ring, ring[0]!], 0.03).slice(0, -1).map(([x, y]) => pathNode(x, y));
   if (spec.stitch === 'running' || spec.stitch === 'satin_outline') {
@@ -236,10 +248,20 @@ function outlinePieces(contours: readonly Point[][], f: (p: Point) => Point, spe
       return o;
     });
   }
+  // Satin columns: the auto-digitizer's drafts (in font units), mapped into place.
+  if (spec.stitch === 'satin_fill') {
+    const node = mapNode(f, scale);
+    return digitized(contours, capHeight).map((o) => ({
+      ...o,
+      settings: o.settings ? { ...o.settings } : undefined,
+      points: (o.points ?? []).map(node),
+      rail2: (o.rail2 ?? []).map(node),
+      holes: (o.holes ?? []).map((h) => h.map(node)),
+    }));
+  }
   // Fills: rings nested into outlines with holes.
-  const type: StitchType = spec.stitch === 'fill' ? 'fill' : 'satin_fill';
   return nestRings(rings).map((poly) => ({
-    stitchType: type,
+    stitchType: 'fill' as StitchType,
     closed: true,
     points: nodes(poly.outer.slice(0, -1)),
     holes: poly.holes.map((h) => nodes(h.slice(0, -1))),
@@ -317,7 +339,7 @@ export function layoutText(spec: TextSpec, font: LetterFont, textId: number): Te
     const built = row.map((l) => {
       const f = letterMapping(spec, scale, wScale, l, lineOffsets[li]!, li * step, centre, width);
       const adjScale = spec.letters[l.index]?.scale ?? 1;
-      const pieces = l.glyph.objects ? nativePieces(l.glyph.objects, f, scale * adjScale) : outlinePieces(l.glyph.contours ?? [], f, spec);
+      const pieces = l.glyph.objects ? nativePieces(l.glyph.objects, f, scale * adjScale) : outlinePieces(l.glyph.contours ?? [], f, spec, font.capHeight, scale * adjScale);
       const meta: LetterMeta = { textId, letter: l.index, char: l.char, capHeight: spec.capHeight, spec };
       pieces.forEach((p, k) => {
         p.textMeta = meta as unknown as TextMeta;

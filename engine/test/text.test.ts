@@ -157,7 +157,11 @@ describe('letters, pieces and textMeta', () => {
     const o = lay({ text: 'O', stitch: 'fill' });
     expect(o.pieces).toHaveLength(1);
     expect(o.pieces[0]!.holes).toHaveLength(1);
-    expect(lay({ text: 'O', stitch: 'satin_fill' }).pieces[0]!.stitchType).toBe('satin_fill');
+    // Satin columns: the auto-digitizer turns the O into one closed satin.
+    const cols = lay({ text: 'O', stitch: 'satin_fill' }).pieces;
+    expect(cols).toHaveLength(1);
+    expect(cols[0]!.stitchType).toBe('satin');
+    expect(cols[0]!.closed).toBe(true);
     const run = lay({ text: 'O', stitch: 'running' });
     expect(run.pieces.map((p) => p.stitchType)).toEqual(['running', 'running']);
     const sat = lay({ text: 'O', stitch: 'satin_outline' });

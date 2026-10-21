@@ -3,6 +3,7 @@
 // drafts from a TrueType font.
 
 import {
+  autodigitize,
   createDocument,
   createNativeFont,
   createObject,
@@ -13,6 +14,7 @@ import {
   nestRings,
   pathNode,
   serializeSpf,
+  type AutoDigitizeOptions,
   type LetterFont,
   type NativeFont,
   type NewObject,
@@ -141,10 +143,10 @@ export class FontEditorSession {
   }
 
   /**
-   * Drafts letters from an outline font: each glyph's outline as fill pieces, scaled to the
-   * native capital height. (Auto-digitized satin columns replace these drafts later.)
+   * Drafts letters from an outline font: each glyph auto-digitized into satin columns, scaled
+   * to the native capital height. Drafts are meant to be fixed by hand.
    */
-  draftFrom(source: LetterFont, chars: readonly string[] = FONT_CHARS): number {
+  draftFrom(source: LetterFont, chars: readonly string[] = FONT_CHARS, opts: AutoDigitizeOptions = {}): number {
     this.store();
     const f = this.font.capHeight / source.capHeight;
     let made = 0;
@@ -152,15 +154,15 @@ export class FontEditorSession {
     for (const ch of chars) {
       const g = source.glyph(ch);
       if (!g?.contours?.length) continue;
-      const rings = g.contours.map((c) => c.map(([x, y]) => [x * f, y * f] as [number, number]));
-      const nodes = (ring: [number, number][]) => douglasPeucker([...ring, ring[0]!], 2).slice(0, -1).map(([x, y]) => pathNode(x, y));
-      const objects = nestRings(rings).map((poly) =>
+      // Draft satin columns from the outline (fix them by hand afterwards).
+      const scaled = (n: PathNode): PathNode => ({ ...n, x: n.x * f, y: n.y * f, width: n.width === null ? null : n.width * f });
+      const objects = autodigitize(g.contours, source.capHeight, opts).map((o) =>
         createObject(scratch, {
-          stitchType: 'fill',
-          closed: true,
-          points: nodes(poly.outer.slice(0, -1) as [number, number][]),
-          holes: poly.holes.map((h) => nodes(h.slice(0, -1) as [number, number][])),
-        } as NewObject),
+          ...o,
+          points: (o.points ?? []).map(scaled),
+          rail2: (o.rail2 ?? []).map(scaled),
+          holes: (o.holes ?? []).map((h) => h.map(scaled)),
+        }),
       );
       this.font.glyphs[ch] = { advance: Math.round(g.advance * f), objects };
       made++;
