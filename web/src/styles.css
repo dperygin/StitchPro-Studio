@@ -970,3 +970,15 @@ body,
 .dialog h2 {
   color: var(--accent);
 }
+
+/* The flower mark at the right end of the top toolbar, on a small white badge (no taller
+   than a toolbar button, so the toolbar keeps its height). */
+.toolbar-logo {
+  margin-left: auto;
+  height: 20px;
+  width: auto;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #ffffff;
+  box-sizing: content-box;
+}

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { command, shortcutLabel, type Editor } from '@stitchpro/editor';
 import { HOOPS, HOOP_KIND_LABELS, SHAPE_KINDS, type HoopKind } from '@stitchpro/engine';
+import logoMark from './assets/logo-mark.png';
 import { useEditorState } from './useEditor';
 
 const EXPORT_FORMATS = ['dst', 'pes', 'exp', 'jef', 'vp3', 'xxx'] as const;
@@ -94,6 +95,7 @@ export function Toolbars({ editor, serverOnline }: { editor: Editor; serverOnlin
         {B('type.contour')}
         {B('type.stipple')}
         {B('type.cross_stitch')}
+        <img className="toolbar-logo" src={logoMark} alt="StitchPro Studio" title="StitchPro Studio" />
       </div>
 
       {/* Edit toolbar */}
