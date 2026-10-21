@@ -139,6 +139,29 @@ export function resamplePolyline(points: readonly Point[], spacing: Spacing): Po
   return arcPositions(cum[cum.length - 1]!, spacing).map((d) => pointAt(points, d, cum));
 }
 
+/**
+ * Each point replaced by the mean of the `window` points around it (closed paths wrap round;
+ * open paths average what exists at their ends). Pass a closed ring without the repeated end.
+ */
+export function movingAverage(pts: readonly Point[], closed: boolean, window = 5): Point[] {
+  const half = Math.floor(window / 2);
+  const n = pts.length;
+  return pts.map((_, i) => {
+    let sx = 0;
+    let sy = 0;
+    let c = 0;
+    for (let k = -half; k <= half; k++) {
+      let j = i + k;
+      if (closed) j = ((j % n) + n) % n;
+      else if (j < 0 || j >= n) continue;
+      sx += pts[j]![0];
+      sy += pts[j]![1];
+      c++;
+    }
+    return [sx / c, sy / c];
+  });
+}
+
 /** Like resamplePolyline, carrying one value per point (e.g. column width) by linear interpolation. */
 export function resampleWithValues(
   points: readonly Point[],

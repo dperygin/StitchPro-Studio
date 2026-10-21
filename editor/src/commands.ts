@@ -170,6 +170,7 @@ export const COMMANDS: readonly Command[] = [
   // ---- tools ----
   { id: 'file.importArtwork', label: 'Import artwork…', group: 'tools', ready: true, run: (ed) => ed.requestAction('importArtwork') },
   { id: 'file.importSvg', label: 'Import SVG as stitches…', group: 'tools', ready: true, run: (ed) => ed.requestAction('importSvg') },
+  { id: 'dialog.autoDigitize', label: 'Auto-digitize picture…', group: 'tools', ready: true, run: (ed, artworkId) => ed.requestAction('autoDigitize', typeof artworkId === 'number' ? artworkId : null) },
   { id: 'edit.duplicate', label: 'Duplicate', group: 'tools', keys: ['Ctrl+D'], ready: true, enabled: selected, run: (ed) => ed.duplicate() },
   { id: 'edit.backtrack', label: 'Backtrack', group: 'tools', ready: true, enabled: selected, run: (ed) => ed.backtrack() },
   { id: 'edit.repeat', label: 'Repeat', group: 'tools', ready: true, enabled: selected, run: (ed) => ed.repeat() },

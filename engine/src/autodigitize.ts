@@ -9,7 +9,7 @@
 import type { NewObject } from './document';
 import { pathNode } from './document';
 import { nestRings, ringArea, type Polygon } from './geometry';
-import { cumulativeLengths, distance, douglasPeucker, lineIntersection, pointAt, vertexAngleDeg } from './path';
+import { cumulativeLengths, distance, douglasPeucker, lineIntersection, movingAverage, pointAt, vertexAngleDeg } from './path';
 import { defaultSettings, type PathNode, type Point } from './types';
 
 export interface AutoDigitizeOptions {
@@ -395,25 +395,6 @@ interface Stroke {
   closed: boolean;
   freeStart: boolean;
   freeEnd: boolean;
-}
-
-function movingAverage(pts: Point[], closed: boolean, window = 5): Point[] {
-  const half = Math.floor(window / 2);
-  const n = pts.length;
-  return pts.map((_, i) => {
-    let sx = 0;
-    let sy = 0;
-    let c = 0;
-    for (let k = -half; k <= half; k++) {
-      let j = i + k;
-      if (closed) j = ((j % n) + n) % n;
-      else if (j < 0 || j >= n) continue;
-      sx += pts[j]![0];
-      sy += pts[j]![1];
-      c++;
-    }
-    return [sx / c, sy / c];
-  });
 }
 
 /** Where the ray p + t d first meets the polygon's outline (t > 0), or null. */

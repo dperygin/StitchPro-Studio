@@ -36,6 +36,9 @@ export function ArtworkPanel({ editor }: { editor: Editor }) {
               <input type="checkbox" checked={a.locked} aria-label={`Lock ${a.name}`} onChange={(e) => editor.updateArtwork(a.id, { locked: e.target.checked })} />
               🔒
             </label>
+            <button type="button" className="tb-button" title="Auto-digitize this picture" aria-label={`Digitize ${a.name}`} onClick={() => editor.run('dialog.autoDigitize', a.id)}>
+              ✨
+            </button>
             <button type="button" className="tb-button" disabled={a.locked} aria-label={`Remove ${a.name}`} onClick={() => editor.removeArtwork(a.id)}>
               ×
             </button>

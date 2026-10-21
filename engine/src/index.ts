@@ -20,6 +20,7 @@ export * from './cut';
 export * from './weld';
 export * from './laydown';
 export * from './vector';
+export * from './trace';
 export * from './threads';
 export * from './hoops';
 export * from './report';

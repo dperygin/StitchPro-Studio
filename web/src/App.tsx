@@ -21,6 +21,7 @@ import { ARTWORK_ACCEPT, decodeArtwork, importArtworkFiles } from './artwork';
 import { importSvgFile } from './svgImport';
 import { MACHINE_ACCEPT, readMachineFile } from './machineImport';
 import { ExportDialog } from './ExportDialog';
+import { AutoDigitizeDialog } from './AutoDigitizeDialog';
 import { downloadPng, downloadWorksheet } from './worksheet';
 import { clearAutosave, forgetAutosave, loadAutosaved, watchAutosave } from './autosave';
 import { applyPrefs, watchPrefs } from './viewPrefs';
@@ -46,6 +47,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dialog, setDialog] = useState<string | null>(null);
   const [exportFormat, setExportFormat] = useState<string | null>(null);
+  const [autoDigitize, setAutoDigitize] = useState<{ artworkId: number | null } | null>(null);
   const [textDialog, setTextDialog] = useState<{ textId: number | null } | null>(null);
   const active = tabs.find((t) => t.id === activeId) ?? tabs[0]!;
   const session = active.session ?? null;
@@ -151,6 +153,8 @@ export function App() {
       } else if (action === 'importSvg') {
         const [file] = await pickFiles('.svg,image/svg+xml');
         if (file) await importSvgFile(editor, file);
+      } else if (action === 'autoDigitize') {
+        setAutoDigitize({ artworkId: typeof arg === 'number' ? arg : null });
       } else if (action === 'exportSvg') {
         setDialog('file.exportSvg');
       } else if (action === 'print') {
@@ -270,6 +274,7 @@ export function App() {
       </footer>
       {settingsOpen && <Settings editor={editor} onClose={() => setSettingsOpen(false)} />}
       {dialog && <ToolDialog key={dialog} editor={editor} id={dialog} onClose={() => setDialog(null)} />}
+      {autoDigitize && <AutoDigitizeDialog editor={editor} artworkId={autoDigitize.artworkId} onClose={() => setAutoDigitize(null)} />}
       {exportFormat && <ExportDialog editor={editor} format={exportFormat} onExport={(fs) => void exportFiles(fs)} onClose={() => setExportFormat(null)} />}
       {textDialog && <TextDialog editor={editor} textId={textDialog.textId} onClose={() => setTextDialog(null)} />}
     </div>

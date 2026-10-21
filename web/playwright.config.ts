@@ -15,8 +15,8 @@ export default defineConfig({
     viewport: { width: 1400, height: 860 },
   },
   expect: {
-    // Screenshot checks: small anti-aliasing differences are not changes.
-    toHaveScreenshot: { maxDiffPixelRatio: 0.01, animations: 'disabled' },
+    // Screenshot checks: a few anti-aliased pixels are not a change; a new button is.
+    toHaveScreenshot: { maxDiffPixels: 100, animations: 'disabled' },
   },
   snapshotPathTemplate: '{testDir}/__screenshots__/{testFilePath}/{arg}{ext}',
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1400, height: 860 } } }],

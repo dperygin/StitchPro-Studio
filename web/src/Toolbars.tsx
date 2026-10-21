@@ -179,6 +179,7 @@ export function Toolbars({ editor, serverOnline }: { editor: Editor; serverOnlin
       <div className="toolbar" data-testid="toolbar-tools">
         {B('file.importArtwork')}
         {B('file.importSvg')}
+        {B('dialog.autoDigitize')}
         <Menu label="Arrange" testId="menu-arrange">
           {(['left', 'centre', 'right', 'top', 'middle', 'bottom'] as const).map((side) => B('arrange.align', `Align ${side} with the last selected`, side))}
           {B('arrange.weld')}

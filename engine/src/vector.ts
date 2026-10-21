@@ -213,7 +213,7 @@ export interface VectorOptions {
 }
 
 /** Dense points as the fewest nodes within tol: sharp turns stay corners, the rest become curves. */
-function smoothNodes(pts: readonly Point[], closed: boolean, tol: number): PathNode[] {
+export function smoothNodes(pts: readonly Point[], closed: boolean, tol: number): PathNode[] {
   const first = pts[0]!;
   const last = pts[pts.length - 1]!;
   const repeated = pts.length > 1 && first[0] === last[0] && first[1] === last[1];

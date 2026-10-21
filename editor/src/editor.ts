@@ -113,7 +113,8 @@ export type HostAction =
   | 'importArtwork'
   | 'importSvg'
   | 'exportSvg'
-  | 'print';
+  | 'print'
+  | 'autoDigitize';
 export type ActionListener = (action: HostAction, arg?: unknown) => void;
 
 /** Copied objects, shared between the tabs of one app. */

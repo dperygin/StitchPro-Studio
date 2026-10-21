@@ -836,3 +836,32 @@ body,
 .export-summary dd {
   margin: 0;
 }
+
+/* Auto-digitize picture */
+.dialog.auto-digitize {
+  width: min(760px, calc(100vw - 32px));
+}
+.auto-digitize-body {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+}
+.auto-digitize-preview canvas {
+  display: block;
+  max-width: 320px;
+  border: 1px solid var(--border, #d0d4da);
+}
+.trace-colours {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 140px;
+  overflow: auto;
+}
+.trace-colours .swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1px solid #999;
+  vertical-align: middle;
+}
