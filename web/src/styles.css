@@ -886,9 +886,9 @@ body,
 
 /* ---- brand: the palette made visible ---- */
 
-/* Toolbars: a navy band with white text; checked tools solid raspberry. */
+/* Toolbars: a purple band with white text; checked tools solid olive green. */
 .toolbars {
-  background: var(--navy);
+  background: var(--purple);
   border-bottom: 3px solid var(--raspberry);
 }
 .toolbar {
@@ -903,12 +903,12 @@ body,
   border-color: rgb(255 255 255 / 0.25);
 }
 .toolbars .tb-button.checked {
-  background: var(--raspberry);
-  border-color: var(--raspberry);
+  background: var(--olive);
+  border-color: var(--olive);
   color: #ffffff;
 }
 .toolbars .tb-button:disabled {
-  color: #b9c3d6;
+  color: #d9c6e3;
   opacity: 0.6;
 }
 .toolbars .tb-sep {
@@ -942,10 +942,10 @@ body,
   border-bottom: 2px solid var(--lavender);
 }
 
-/* Panel buttons: checked ones in raspberry too. */
+/* Panel buttons: checked ones in olive green too. */
 .panel .tb-button.checked {
-  background: var(--raspberry);
-  border-color: var(--raspberry);
+  background: var(--olive);
+  border-color: var(--olive);
   color: #ffffff;
 }
 
