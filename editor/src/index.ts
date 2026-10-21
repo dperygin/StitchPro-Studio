@@ -1,4 +1,6 @@
 export * from './editor';
+export * from './commands';
+export * from './properties';
 export * from './renderer';
 export * from './input';
 export * from './view';

@@ -12,6 +12,7 @@ export function CanvasView({ editor }: { editor: Editor }) {
       const ratio = window.devicePixelRatio || 1;
       canvas.width = Math.max(1, Math.round(canvas.clientWidth * ratio));
       canvas.height = Math.max(1, Math.round(canvas.clientHeight * ratio));
+      editor.setViewport(canvas.clientWidth, canvas.clientHeight);
       renderer.requestRedraw('base');
     };
     resize();

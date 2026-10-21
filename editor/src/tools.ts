@@ -1,12 +1,12 @@
 // Tools: how pointer and key input becomes edits. Each tool works on the Editor's public API.
 
 import { formatLength } from './units';
-import { DOUBLE_CLICK_MS, DRAG_THRESHOLD_PX, NODE_PICK_PX } from './constants';
+import { DOUBLE_CLICK_MS, DRAG_THRESHOLD_PX, NODE_PICK_PX, NODE_WIDTH_STEP_MM } from './constants';
 import { objectsInBox, pickNode, type Box } from './hittest';
-import { pathNode, translateObject, type PathNode, type Point, type StitchObject } from '@stitchpro/engine';
+import { naturalAspect, pathNode, standardShape, translateObject, type PathNode, type Point, type StitchObject } from '@stitchpro/engine';
 import type { Editor, KeyInput, PointerInput } from './editor';
 
-export type ToolName = 'select' | 'draw' | 'reshape' | 'stitches' | 'pick' | 'angle' | 'measure' | 'letters';
+export type ToolName = 'select' | 'draw' | 'shape' | 'reshape' | 'stitches' | 'pick' | 'angle' | 'measure' | 'letters';
 
 /** What a tool wants drawn on the overlay (in design mm). */
 export interface ToolOverlay {
@@ -18,6 +18,10 @@ export interface ToolOverlay {
   nodes?: PathNode[];
   /** Where the next node would go. */
   cursor?: Point;
+  /** Rail 1 of a two-rail satin, while rail 2 is being digitized. */
+  rail?: PathNode[];
+  /** Draw `nodes` as a closed outline. */
+  closed?: boolean;
 }
 
 export interface Tool {
@@ -148,6 +152,8 @@ class DrawTool extends BaseTool {
   readonly name = 'draw';
   private nodes: PathNode[] = [];
   private last: PointerInput | null = null;
+  /** Two-rail satin / Column: rail 1, kept while rail 2 is digitized. */
+  private rail1: PathNode[] | null = null;
 
   override pointerDown(e: PointerInput): void {
     const ed = this.editor;
@@ -197,6 +203,9 @@ class DrawTool extends BaseTool {
     const ed = this.editor;
     const nodes = this.nodes;
     this.nodes = [];
+    const mode = ed.drawMode;
+    if (mode.stitchType === 'radial_satin' && !mode.hole) return this.finishRail(nodes);
+    if (mode.hole) return this.finishHole(nodes);
     if (nodes.length < (closed ? 3 : 2)) {
       ed.setStatus(closed ? 'A closed shape needs at least 3 nodes' : 'A line needs at least 2 nodes');
       ed.changed('overlay');
@@ -209,14 +218,114 @@ class DrawTool extends BaseTool {
     return o;
   }
 
+  /** Two-rail satin and Column: the first Enter ends rail 1, the second makes the object. */
+  private finishRail(nodes: PathNode[]): StitchObject | null {
+    const ed = this.editor;
+    if (nodes.length < 2) {
+      ed.setStatus('A rail needs at least 2 nodes');
+      return null;
+    }
+    if (!this.rail1) {
+      this.rail1 = nodes;
+      ed.setStatus(`Now digitize rail 2${ed.drawMode.paired ? ' (one node per rail-1 node)' : ''}, then Enter`);
+      ed.changed('overlay');
+      return null;
+    }
+    const o = ed.addObject(ed.newObject({ points: this.rail1, rail2: nodes, closed: false }));
+    this.rail1 = null;
+    ed.select(o.id);
+    ed.commit('Draw');
+    ed.setStatus(`Added ${o.name}`);
+    return o;
+  }
+
+  /** Add hole: the closed shape becomes a hole of the selected area. */
+  private finishHole(nodes: PathNode[]): StitchObject | null {
+    const ed = this.editor;
+    const target = ed.selectedObjects().find((o) => o.closed);
+    if (!target || nodes.length < 3) {
+      ed.setStatus(target ? 'A hole needs at least 3 nodes' : 'Select a closed shape first');
+      return null;
+    }
+    const o = ed.replace({ ...target, holes: [...target.holes, nodes] });
+    ed.commit('Add hole');
+    ed.drawMode = { ...ed.drawMode, hole: false };
+    ed.setTool('select');
+    ed.setStatus(`Added a hole to ${o.name}`);
+    return o;
+  }
+
   override cancel(): void {
     this.nodes = [];
+    this.rail1 = null;
     this.last = null;
     this.editor.changed('overlay');
   }
 
   override overlay(): ToolOverlay {
-    return { nodes: this.nodes, cursor: this.editor.pointer ?? undefined };
+    return { nodes: this.nodes, cursor: this.editor.pointer ?? undefined, rail: this.rail1 ?? undefined };
+  }
+}
+
+// ---- standard shapes: drag a box ----
+
+class ShapeTool extends BaseTool {
+  readonly name = 'shape';
+  private start: Point | null = null;
+  private end: Point | null = null;
+  private square = false;
+
+  override pointerDown(e: PointerInput): void {
+    if (e.button !== undefined && e.button !== 0) return;
+    this.start = this.editor.toDesign(e);
+    this.end = this.start;
+  }
+
+  override pointerMove(e: PointerInput): void {
+    if (!this.start) return;
+    this.end = this.editor.toDesign(e);
+    this.square = !!e.ctrl;
+  }
+
+  override pointerUp(e: PointerInput): void {
+    const ed = this.editor;
+    const a = this.start;
+    if (!a) return;
+    this.end = ed.toDesign(e);
+    this.square = !!e.ctrl;
+    const box = this.box()!;
+    this.start = null;
+    if (Math.abs(box.x1 - box.x0) < 0.5 || Math.abs(box.y1 - box.y0) < 0.5) return;
+    const closedType = ed.drawMode.closed ? ed.drawMode.stitchType : 'running';
+    const o = ed.addObject(ed.newObject({ points: standardShape(ed.shapeKind, box), closed: true, stitchType: closedType }));
+    ed.select(o.id);
+    ed.commit('Shape');
+    ed.setStatus(`Added ${o.name}`);
+  }
+
+  /** The dragged box (Ctrl keeps the shape's proportions). */
+  private box(): { x0: number; y0: number; x1: number; y1: number } | null {
+    if (!this.start || !this.end) return null;
+    const [x0, y0] = this.start;
+    let [x1, y1] = this.end;
+    if (this.square) {
+      // Ctrl: the shape's natural proportions (a circle stays round, a hexagon regular).
+      const aspect = naturalAspect(this.editor.shapeKind);
+      const h = Math.max(Math.abs(y1 - y0), Math.abs(x1 - x0) / aspect);
+      x1 = x0 + Math.sign(x1 - x0 || 1) * h * aspect;
+      y1 = y0 + Math.sign(y1 - y0 || 1) * h;
+    }
+    return { x0, y0, x1, y1 };
+  }
+
+  override cancel(): void {
+    this.start = null;
+  }
+
+  override overlay(): ToolOverlay {
+    const b = this.box();
+    if (!b) return {};
+    return { nodes: standardShape(this.editor.shapeKind, b), closed: true };
   }
 }
 
@@ -225,6 +334,8 @@ class DrawTool extends BaseTool {
 class ReshapeTool extends BaseTool {
   readonly name = 'reshape';
   private drag: { object: StitchObject; node: number; at: PointerInput; start: Point; dragging: boolean } | null = null;
+  /** The last node clicked: Space toggles its type, [ and ] change its width. */
+  active: { id: number; node: number } | null = null;
 
   override pointerDown(e: PointerInput): void {
     const ed = this.editor;
@@ -233,6 +344,7 @@ class ReshapeTool extends BaseTool {
       const node = pickNode(o, p, ed.pxToMm(NODE_PICK_PX));
       if (node >= 0 && !o.locked) {
         this.drag = { object: o, node, at: e, start: p, dragging: false };
+        this.active = { id: o.id, node };
         return;
       }
     }
@@ -264,6 +376,29 @@ class ReshapeTool extends BaseTool {
       this.editor.endLive();
       this.editor.commit('Reshape');
     }
+  }
+
+  override keyDown(e: KeyInput): boolean {
+    const ed = this.editor;
+    const a = this.active;
+    const o = a ? ed.object(a.id) : undefined;
+    if (!a || !o) return false;
+    const onRail1 = a.node < o.points.length;
+    const list = onRail1 ? o.points : o.rail2;
+    const i = onRail1 ? a.node : a.node - o.points.length;
+    const nd = list[i];
+    if (!nd) return false;
+    let next: PathNode | null = null;
+    if (e.key === ' ') next = { ...nd, type: nd.type === 'corner' ? 'curve' : 'corner' };
+    else if (e.key === '[' || e.key === ']') {
+      const w = nd.width ?? o.settings.satinWidth;
+      next = { ...nd, width: Math.max(0.1, Math.round((w + (e.key === ']' ? NODE_WIDTH_STEP_MM : -NODE_WIDTH_STEP_MM)) * 1000) / 1000) };
+    }
+    if (!next) return false;
+    const updated = list.map((x, j) => (j === i ? next! : x));
+    ed.replace(onRail1 ? { ...o, points: updated } : { ...o, rail2: updated });
+    ed.commit(e.key === ' ' ? 'Node type' : 'Node width');
+    return true;
   }
 
   override cancel(): void {
@@ -338,7 +473,7 @@ class StitchesTool extends BaseTool {
 
 // ---- pick: entry, exit, colour ----
 
-export type PickMode = 'entry' | 'exit' | 'colour';
+export type PickMode = 'entry' | 'exit' | 'colour' | 'hoop';
 
 class PickTool extends BaseTool {
   readonly name = 'pick';
@@ -357,6 +492,12 @@ class PickTool extends BaseTool {
     }
     const target = ed.selectedObjects()[0] ?? ed.objectAt(e);
     if (!target) return;
+    if (this.mode === 'hoop') {
+      ed.replace({ ...target, hoopOut: p });
+      ed.commit('Hoop out');
+      ed.setTool('select');
+      return;
+    }
     ed.replace(this.mode === 'entry' ? { ...target, fillStart: p, autoEntry: false } : { ...target, fillEnd: p, autoEntry: false });
     ed.commit(this.mode === 'entry' ? 'Set entry' : 'Set exit');
   }
@@ -447,6 +588,8 @@ export function createTool(name: ToolName, editor: Editor): Tool {
   switch (name) {
     case 'draw':
       return new DrawTool(editor);
+    case 'shape':
+      return new ShapeTool(editor);
     case 'reshape':
       return new ReshapeTool(editor);
     case 'stitches':

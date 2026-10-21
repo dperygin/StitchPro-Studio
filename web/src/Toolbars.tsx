@@ -1,6 +1,227 @@
-// The three toolbars and menus.
-// Placeholder - implemented in a later step.
+// The three toolbars and menus, all rendered from the editor's command registry.
 
-export function Toolbars() {
-  return <div className="toolbars" />;
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { command, shortcutLabel, type Editor } from '@stitchpro/editor';
+import { HOOPS, SHAPE_KINDS } from '@stitchpro/engine';
+import { useEditorState } from './useEditor';
+
+const EXPORT_FORMATS = ['dst', 'pes', 'exp', 'jef', 'vp3', 'xxx'] as const;
+
+export function CommandButton({ editor, id, label, arg }: { editor: Editor; id: string; label?: string; arg?: unknown }) {
+  const cmd = command(id);
+  if (!cmd) return null;
+  const enabled = editor.isEnabled(id);
+  const checked = editor.isChecked(id);
+  const keys = shortcutLabel(id);
+  const title = cmd.ready ? `${cmd.label}${keys ? ` (${keys})` : ''}` : `${cmd.label} (coming in a later step)`;
+  return (
+    <button
+      type="button"
+      className={`tb-button${checked ? ' checked' : ''}`}
+      disabled={!enabled}
+      aria-pressed={checked || undefined}
+      title={title}
+      data-command={id}
+      onClick={() => editor.run(id, arg)}
+    >
+      {label ?? cmd.label}
+    </button>
+  );
+}
+
+/** A dropdown menu of commands (closes on click outside). */
+export function Menu({ label, children, testId }: { label: string; children: ReactNode; testId?: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [open]);
+  return (
+    <div className="menu" ref={ref}>
+      <button type="button" className="tb-button" aria-expanded={open} data-testid={testId} onClick={() => setOpen(!open)}>
+        {label} ▾
+      </button>
+      {open && (
+        <div className="menu-items" role="menu" onClick={() => setOpen(false)}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const Sep = () => <span className="tb-sep" />;
+
+export function Toolbars({ editor, serverOnline }: { editor: Editor; serverOnline: boolean }) {
+  useEditorState(editor);
+  const B = (id: string, label?: string, arg?: unknown) => <CommandButton key={id + String(label)} editor={editor} id={id} label={label} arg={arg} />;
+  const [skew, setSkew] = useState('10');
+
+  return (
+    <header className="toolbars">
+      {/* Digitize toolbar */}
+      <div className="toolbar" data-testid="toolbar-digitize">
+        {B('tool.select')}
+        <Sep />
+        {B('draw.open')}
+        {B('draw.closed')}
+        {B('draw.column')}
+        {B('draw.twoRail')}
+        {B('draw.manual')}
+        <Sep />
+        {B('shape.circle')}
+        {B('shape.rectangle')}
+        <Menu label="Shapes">{SHAPE_KINDS.filter((k) => k !== 'circle' && k !== 'rectangle').map((k) => B(`shape.${k}`))}</Menu>
+        <Sep />
+        {B('mode.outline')}
+        {B('mode.fill')}
+        <Sep />
+        {B('type.running')}
+        {B('type.satin')}
+        {B('type.zigzag')}
+        {B('type.e_stitch')}
+        {B('type.motif_line')}
+        <Sep />
+        {B('type.fill')}
+        {B('type.satin_fill')}
+        {B('type.outline')}
+        {B('type.motif_fill')}
+        {B('type.contour')}
+        {B('type.stipple')}
+        {B('type.cross_stitch')}
+      </div>
+
+      {/* Edit toolbar */}
+      <div className="toolbar" data-testid="toolbar-edit">
+        <Menu label="File" testId="menu-file">
+          {B('file.new')}
+          {B('file.open')}
+          {B('file.save')}
+          {B('file.saveAs')}
+          {B('file.importMachine')}
+          {serverOnline
+            ? EXPORT_FORMATS.map((f) => B('file.export', `Export ${f.toUpperCase()}`, f))
+            : B('file.export', 'Export (server offline)')}
+          {B('file.exportSvg')}
+          {B('file.printWorksheet')}
+          {B('file.printTemplate')}
+          {B('file.printImage')}
+        </Menu>
+        {B('file.settings')}
+        <select
+          className="tb-select"
+          title="Hoop"
+          aria-label="Hoop"
+          value={editor.doc.hoopId}
+          onChange={(e) => editor.setHoop(e.target.value)}
+        >
+          {!editor.doc.hoopId && <option value="">{`${editor.doc.hoopWidth} x ${editor.doc.hoopHeight} mm`}</option>}
+          {HOOPS.map((h) => (
+            <option key={h.id} value={h.id}>
+              {h.name}
+            </option>
+          ))}
+        </select>
+        <Sep />
+        {B('edit.finish')}
+        {B('edit.finishClosed')}
+        {B('edit.cancel')}
+        <Sep />
+        {B('edit.undo')}
+        {B('edit.redo')}
+        {B('edit.cut')}
+        {B('edit.copy')}
+        {B('edit.paste')}
+        {B('edit.delete')}
+        <Sep />
+        {B('tool.reshape')}
+        {B('tool.angle')}
+        {B('tool.polygon')}
+        {B('tool.stitches')}
+        {B('edit.splice')}
+        {B('edit.addHole')}
+        {B('pick.entry')}
+        {B('pick.exit')}
+        <Sep />
+        {B('view.zoomOut', '−')}
+        {B('view.zoomIn', '+')}
+        {B('view.fit')}
+        {B('view.grid')}
+        <input
+          className="tb-number"
+          type="number"
+          min={1}
+          step={1}
+          title="Grid spacing (mm)"
+          aria-label="Grid spacing"
+          value={editor.gridSpacing}
+          onChange={(e) => editor.setGridSpacing(Number(e.target.value))}
+        />
+        {B('view.snap')}
+        {B('view.rulers')}
+        {B('tool.measure')}
+        {B('edit.centerInHoop')}
+        {B('view.units', editor.units === 'mm' ? 'mm' : 'in')}
+        {B('view.simStitch')}
+        {B('view.marks')}
+      </div>
+
+      {/* Tools toolbar */}
+      <div className="toolbar" data-testid="toolbar-tools">
+        {B('file.importArtwork')}
+        {B('file.importSvg')}
+        <Menu label="Arrange">
+          {B('arrange.align')}
+          {B('arrange.weld')}
+          {B('arrange.byColour')}
+          {B('arrange.backColour')}
+          {B('arrange.forwardColour')}
+          {B('arrange.optimize')}
+          {B('arrange.spaceEvenly')}
+          {B('arrange.bySelection')}
+        </Menu>
+        {B('edit.duplicate')}
+        {B('edit.backtrack')}
+        {B('edit.repeat')}
+        {B('edit.closestJoin')}
+        {B('pick.hoopOut')}
+        {B('edit.flip')}
+        {B('edit.rotate15')}
+        <label className="tb-field" title="Skew angle (degrees, up to 70)">
+          Skew
+          <input className="tb-number" type="number" min={-70} max={70} value={skew} onChange={(e) => setSkew(e.target.value)} aria-label="Skew angle" />
+          <button type="button" className="tb-button" disabled={!editor.isEnabled('edit.skew')} onClick={() => editor.run('edit.skew', Math.max(-70, Math.min(70, Number(skew) || 0)))}>
+            Apply
+          </button>
+        </label>
+        <Sep />
+        <Menu label="Tools">
+          {B('dialog.motifStamp')}
+          {B('dialog.array')}
+          {B('dialog.mirror')}
+          {B('dialog.kaleidoscope')}
+          {B('dialog.insertOffset')}
+          {B('dialog.addBorder')}
+          {B('dialog.autoApplique')}
+          {B('dialog.smooth')}
+          {B('dialog.knockout')}
+          {B('dialog.laydown')}
+          {B('dialog.fillHoles')}
+          {B('dialog.partialApplique')}
+          {B('dialog.saveMotif')}
+        </Menu>
+        <Menu label="Text">
+          {B('text.add')}
+          {B('text.edit')}
+          {B('tool.letters')}
+          {B('dialog.fontEditor')}
+        </Menu>
+      </div>
+    </header>
+  );
 }

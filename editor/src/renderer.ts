@@ -6,7 +6,7 @@
 // rulers). Each object's stitches become a Path2D once per version. At most one redraw per
 // animation frame.
 
-import { JUMP_MARK, type Point, type StitchObject } from '@stitchpro/engine';
+import { JUMP_MARK, type MarkKind, type Point, type StitchObject } from '@stitchpro/engine';
 import { RULER_PX, SIM_THREAD_MM } from './constants';
 import type { ChangeKind, Editor } from './editor';
 import { unionBox, type Box } from './hittest';
@@ -54,11 +54,21 @@ const LIGHT: Theme = {
 const css = (c: readonly number[], k = 1) =>
   `rgb(${Math.round(Math.min(255, c[0]! * k))}, ${Math.round(Math.min(255, c[1]! * k))}, ${Math.round(Math.min(255, c[2]! * k))})`;
 
+/** Colours of the machine-command marks (also used by the colour bar legend). */
+export const MARK_COLOURS: Readonly<Record<MarkKind, string>> = {
+  start: '#1e8e3e',
+  end: '#d93025',
+  tie_in: '#188038',
+  tie_off: '#c5221f',
+  trim: '#e37400',
+  stop: '#9334e6',
+  hoop_out: '#a142f4',
+  color_change: '#1a73e8',
+  travel: '#80868b',
+};
+
 export class Renderer {
   theme: Theme = LIGHT;
-  showRulers = true;
-  showGrid = false;
-  gridSpacing = 10;
 
   private readonly ctx: CanvasRenderingContext2D;
   private base: CanvasLike | null = null;
@@ -131,7 +141,7 @@ export class Renderer {
     const w = canvas.width;
     const h = canvas.height;
     const v = editor.view;
-    const key = `${editor.baseRevision}|${v.zoom}|${v.panX}|${v.panY}|${w}x${h}|${editor.simStitch}|${this.showGrid}|${this.gridSpacing}`;
+    const key = `${editor.baseRevision}|${v.zoom}|${v.panX}|${v.panY}|${w}x${h}|${editor.simStitch}|${editor.showGrid}|${editor.gridSpacing}|${editor.showMarks}|${editor.player.index}`;
     if (!this.base || this.base.width !== w || this.base.height !== h) {
       this.base = this.createCanvas(w, h);
       this.baseKey = '';
@@ -149,7 +159,7 @@ export class Renderer {
       if (o?.visible) this.drawObject(ctx, o);
     }
     this.drawOverlay(ctx);
-    if (this.showRulers) this.drawRulers(ctx);
+    if (editor.showRulers) this.drawRulers(ctx);
   }
 
   private designTransform(ctx: CanvasRenderingContext2D): void {
@@ -171,9 +181,70 @@ export class Renderer {
     ctx.fillStyle = theme.background;
     ctx.fillRect(0, 0, target.width, target.height);
     this.designTransform(ctx);
-    if (this.showGrid) this.drawGrid(ctx, target);
+    if (editor.showGrid) this.drawGrid(ctx, target);
     this.drawHoop(ctx);
-    for (const o of editor.doc.objects) if (o.visible && !editor.live.has(o.id)) this.drawObject(ctx, o);
+    const shown = editor.player.index;
+    if (shown === null) {
+      for (const o of editor.doc.objects) if (o.visible && !editor.live.has(o.id)) this.drawObject(ctx, o);
+    } else {
+      // Stitch player: everything sewn so far, the current object up to the current stitch.
+      for (const { object, start, count } of editor.sewingOrder()) {
+        if (start >= shown) break;
+        if (start + count <= shown) this.drawObject(ctx, object);
+        else this.drawPartial(ctx, object, shown - start);
+      }
+    }
+    if (editor.showMarks) this.drawMarks(ctx);
+  }
+
+  /** The first n stitches of an object (stitch player). */
+  private drawPartial(ctx: CanvasRenderingContext2D, o: StitchObject, n: number): void {
+    const pts = this.editor.stitches(o).slice(0, n);
+    if (pts.length < 2) return;
+    ctx.strokeStyle = css(o.color);
+    ctx.lineWidth = this.editor.simStitch ? SIM_THREAD_MM : this.px;
+    ctx.beginPath();
+    ctx.moveTo(pts[0]![0], pts[0]![1]);
+    for (const p of pts.slice(1)) ctx.lineTo(p[0], p[1]);
+    ctx.stroke();
+    const last = pts[pts.length - 1]!;
+    ctx.fillStyle = this.theme.selection;
+    ctx.beginPath();
+    ctx.arc(last[0], last[1], 3 * this.ratio * this.px, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /** Machine commands: start, end, ties, trims, stops, hoop out, colour changes, travel runs. */
+  private drawMarks(ctx: CanvasRenderingContext2D): void {
+    const r = 3 * this.ratio * this.px;
+    for (const m of this.editor.machineMarks()) {
+      ctx.strokeStyle = ctx.fillStyle = MARK_COLOURS[m.kind];
+      ctx.lineWidth = this.px * 1.5;
+      if (m.kind === 'travel' && m.path) {
+        ctx.setLineDash([3 * this.px, 2 * this.px]);
+        ctx.beginPath();
+        ctx.moveTo(m.path[0]![0], m.path[0]![1]);
+        for (const p of m.path.slice(1)) ctx.lineTo(p[0], p[1]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        continue;
+      }
+      ctx.beginPath();
+      const [x, y] = m.at;
+      if (m.kind === 'trim') {
+        ctx.moveTo(x - r, y - r);
+        ctx.lineTo(x + r, y + r);
+        ctx.moveTo(x + r, y - r);
+        ctx.lineTo(x - r, y + r);
+        ctx.stroke();
+      } else if (m.kind === 'tie_in' || m.kind === 'tie_off') {
+        ctx.arc(x, y, r * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.rect(x - r, y - r, 2 * r, 2 * r);
+        ctx.stroke();
+      }
+    }
   }
 
   private drawObject(ctx: CanvasRenderingContext2D, o: StitchObject): void {
@@ -211,7 +282,7 @@ export class Renderer {
     const v = this.editor.view;
     const [x0, y0] = v.toDesign([0, 0]);
     const [x1, y1] = v.toDesign([target.width / this.ratio, target.height / this.ratio]);
-    const g = this.gridSpacing;
+    const g = this.editor.gridSpacing;
     ctx.strokeStyle = this.theme.grid;
     ctx.lineWidth = this.px;
     ctx.beginPath();
@@ -263,9 +334,13 @@ export class Renderer {
       ctx.stroke();
     };
     if (t.line) line(t.line);
+    if (t.rail?.length) {
+      line(t.rail.map((n): Point => [n.x, n.y]));
+      for (const n of t.rail) ctx.fillRect(n.x - size, n.y - size, 2 * size, 2 * size);
+    }
     if (t.nodes?.length) {
       const pts: Point[] = t.nodes.map((n) => [n.x, n.y]);
-      line(t.cursor ? [...pts, t.cursor] : pts);
+      line(t.closed ? [...pts, pts[0]!] : t.cursor ? [...pts, t.cursor] : pts);
       for (const n of t.nodes) {
         ctx.beginPath();
         ctx.rect(n.x - size, n.y - size, 2 * size, 2 * size);
