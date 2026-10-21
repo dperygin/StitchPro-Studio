@@ -28,6 +28,7 @@ test('auto-digitizes a picture: traces it with a preview, saves the traced SVG a
   });
   await page.locator('[data-command="dialog.autoDigitize"]').click();
   const dialog = page.getByRole('dialog', { name: 'Auto-digitize picture' });
+  await expect(dialog).toContainText('Poor digitizing can damage your machine or fabric. Use at your own risk. The result is a draft to check and adjust.');
   const chooser = page.waitForEvent('filechooser');
   await dialog.getByRole('button', { name: 'Choose file…' }).click();
   await (await chooser).setFiles({ name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });

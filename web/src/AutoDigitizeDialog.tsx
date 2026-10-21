@@ -136,7 +136,7 @@ export function AutoDigitizeDialog({ editor, artworkId, onClose }: { editor: Edi
     <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}>
       <div className="dialog auto-digitize" role="dialog" aria-label="Auto-digitize picture" onMouseDown={(e) => e.stopPropagation()}>
         <h2>Auto-digitize picture</h2>
-        <p className="muted">Works best on logos and clip art with flat colours. The result is a draft to check and adjust.</p>
+        <p className="muted">Works best on logos and clip art with flat colours. Poor digitizing can damage your machine or fabric. Use at your own risk. The result is a draft to check and adjust.</p>
         <div className="auto-digitize-body">
           <div>
             <div className="field">
