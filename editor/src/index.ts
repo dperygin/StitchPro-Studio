@@ -8,3 +8,5 @@ export * from './fonts';
 export * from './fonteditor';
 export * from './svgexport';
 export * from './units';
+export * from './constants';
+export { createTool, isDrag, setPickMode, type PickMode, type Tool, type ToolOverlay } from './tools';

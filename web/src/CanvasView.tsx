@@ -6,22 +6,22 @@ export function CanvasView({ editor }: { editor: Editor }) {
 
   useEffect(() => {
     const canvas = ref.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
-    const renderer = new Renderer(editor, ctx);
+    if (!canvas) return;
+    const renderer = new Renderer(editor, canvas);
     const resize = () => {
-      canvas.width = canvas.clientWidth;
-      canvas.height = canvas.clientHeight;
-      renderer.draw();
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.round(canvas.clientWidth * ratio));
+      canvas.height = Math.max(1, Math.round(canvas.clientHeight * ratio));
+      renderer.requestRedraw('base');
     };
     resize();
     const detach = attachInput(editor, canvas);
-    const unsubscribe = editor.subscribe(() => renderer.draw());
-    window.addEventListener('resize', resize);
+    const observer = new ResizeObserver(resize);
+    observer.observe(canvas);
     return () => {
       detach();
-      unsubscribe();
-      window.removeEventListener('resize', resize);
+      observer.disconnect();
+      renderer.dispose();
     };
   }, [editor]);
 
