@@ -70,6 +70,57 @@ export const DIALOGS: Record<string, (ed: Editor) => DialogSpec> = {
     fields: [{ key: 'd', label: 'Offset (negative = inside)', kind: 'length', initial: 2 }],
     apply: (ed, v) => ed.insertOffset(Number(v.d)),
   }),
+  'dialog.autoApplique': (ed) => ({
+    title: 'Auto applique',
+    fields: [
+      {
+        key: 'tackDown',
+        label: 'Tack-down',
+        kind: 'choice',
+        initial: 'e_stitch',
+        options: [
+          { value: 'e_stitch', label: 'E stitch (pointing in)' },
+          { value: 'zigzag', label: 'Zigzag' },
+          { value: 'running', label: 'Run' },
+        ],
+      },
+      { key: 'tackWidth', label: 'Tack-down width', kind: 'length', initial: 2 },
+      { key: 'coverWidth', label: 'Cover satin width', kind: 'length', initial: 3 },
+      { key: 'hoop', label: 'Hoop out after the placement (instead of a stop)', kind: 'bool', initial: false },
+      { key: 'hx', label: 'Hoop-out point X', kind: 'length', initial: 0 },
+      { key: 'hy', label: 'Hoop-out point Y', kind: 'length', initial: ed.doc.hoopHeight / 2 },
+    ],
+    apply: (e, v) =>
+      e.autoApplique({
+        tackDown: v.tackDown as 'e_stitch' | 'zigzag' | 'running',
+        tackWidth: Number(v.tackWidth),
+        coverWidth: Number(v.coverWidth),
+        hoopOut: v.hoop ? [Number(v.hx), Number(v.hy)] : null,
+      }),
+  }),
+  'dialog.laydown': () => ({
+    title: 'Laydown',
+    fields: [
+      {
+        key: 'shape',
+        label: 'Shape',
+        kind: 'choice',
+        initial: 'outline',
+        options: [
+          { value: 'outline', label: 'Follow the design' },
+          { value: 'box', label: 'Box' },
+          { value: 'ellipse', label: 'Ellipse' },
+        ],
+      },
+      { key: 'offset', label: 'Offset', kind: 'length', initial: 2 },
+    ],
+    apply: (ed, v) => ed.addLaydown(v.shape as 'outline' | 'box' | 'ellipse', Number(v.offset)),
+  }),
+  'dialog.fillHoles': () => ({
+    title: 'Fill holes',
+    fields: [{ key: 'margin', label: 'Overlap margin', kind: 'length', initial: 0.3 }],
+    apply: (ed, v) => ed.fillHoles(Number(v.margin)),
+  }),
   'dialog.addBorder': () => ({
     title: 'Add border',
     fields: [

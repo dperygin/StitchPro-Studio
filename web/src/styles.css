@@ -366,8 +366,9 @@ body,
 .hoop-out-block {
   margin: 4px 0;
   padding: 2px 6px;
-  border-left: 3px solid #a142f4;
-  color: var(--muted);
+  border-left: 3px solid #f29900;
+  background: rgba(242, 153, 0, 0.12);
+  color: var(--text);
 }
 
 .properties .field,

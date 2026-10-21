@@ -46,9 +46,10 @@ describe('the command registry', () => {
 
   it('runs ready commands and refuses the ones built later', () => {
     const { ed } = three();
-    expect(ed.isEnabled('edit.splice')).toBe(false);
-    expect(ed.run('edit.splice')).toBe(false);
-    expect(ed.keyDown({ key: 'k', ctrl: true, shift: true })).toBe(false);
+    expect(ed.isEnabled('dialog.motifStamp')).toBe(false);
+    expect(ed.run('dialog.motifStamp')).toBe(false);
+    expect(ed.keyDown({ key: 'k', ctrl: true, shift: true })).toBe(true);
+    expect(ed.toolName).toBe('cut');
     expect(ed.run('tool.reshape')).toBe(true);
     expect(ed.toolName).toBe('reshape');
     expect(ed.isChecked('tool.reshape')).toBe(true);

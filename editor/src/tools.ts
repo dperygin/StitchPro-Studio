@@ -7,7 +7,7 @@ import { objectsInBox, pickNode, type Box } from './hittest';
 import { naturalAspect, pathNode, standardShape, transformObject, translateObject, type LetterAdjust, type PathNode, type Point, type StitchObject } from '@stitchpro/engine';
 import type { Editor, KeyInput, PointerInput } from './editor';
 
-export type ToolName = 'select' | 'draw' | 'shape' | 'polygon' | 'reshape' | 'stitches' | 'pick' | 'angle' | 'measure' | 'letters';
+export type ToolName = 'select' | 'draw' | 'shape' | 'polygon' | 'reshape' | 'stitches' | 'pick' | 'angle' | 'measure' | 'cut' | 'letters';
 
 /** What a tool wants drawn on the overlay (in design mm). */
 export interface ToolOverlay {
@@ -746,6 +746,49 @@ class MeasureTool extends BaseTool {
   }
 }
 
+// ---- cut shapes: a knife line ----
+
+/** Drag a line; on release the selected objects (or, with none selected, every object it crosses) are cut. */
+class CutTool extends BaseTool {
+  readonly name = 'cut';
+  private start: Point | null = null;
+  private end: Point | null = null;
+
+  constructor(editor: Editor) {
+    super(editor);
+    editor.setStatus('Cut shapes: drag a line across the objects to cut');
+  }
+
+  override pointerDown(e: PointerInput): void {
+    this.start = this.editor.snapPoint(this.editor.toDesign(e), e);
+    this.end = this.start;
+  }
+
+  override pointerMove(e: PointerInput): void {
+    if (!this.start) return;
+    this.end = this.editor.snapPoint(this.editor.toDesign(e), e);
+    this.editor.changed('overlay');
+  }
+
+  override pointerUp(e: PointerInput): void {
+    if (!this.start) return;
+    const a = this.start;
+    const b = this.editor.snapPoint(this.editor.toDesign(e), e);
+    this.start = this.end = null;
+    this.editor.changed('overlay');
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < this.editor.pxToMm(3)) return;
+    this.editor.cutWithLine([a, b]);
+  }
+
+  override cancel(): void {
+    this.start = this.end = null;
+  }
+
+  override overlay(): ToolOverlay {
+    return this.start && this.end ? { line: [this.start, this.end] } : {};
+  }
+}
+
 // ---- letters: adjust single letters of a text ----
 
 /** Letters mode steps (Shift x 10 for moves). */
@@ -846,6 +889,8 @@ export function createTool(name: ToolName, editor: Editor): Tool {
       return new AngleTool(editor);
     case 'measure':
       return new MeasureTool(editor);
+    case 'cut':
+      return new CutTool(editor);
     case 'letters':
       return new LettersTool(editor);
     default:

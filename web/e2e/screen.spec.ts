@@ -25,7 +25,7 @@ test('shows the three toolbars, panels, colour bar and status bar', async ({ pag
   await expect(page.getByTestId('palette-slot')).toHaveCount(12);
   await expect(page.getByRole('tab')).toHaveCount(1);
   // Commands built in later steps are shown but disabled.
-  await expect(page.locator('[data-command="edit.splice"]')).toBeDisabled();
+  await expect(page.locator('[data-command="file.importSvg"]')).toBeDisabled();
 });
 
 test('draws a shape, lists it, edits its properties and undoes', async ({ page }) => {

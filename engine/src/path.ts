@@ -316,7 +316,8 @@ export function douglasPeucker(points: readonly Point[], tolerance: number): Poi
   return douglasPeuckerIndices(points, tolerance).map((i) => [points[i]![0], points[i]![1]]);
 }
 
-function douglasPeuckerIndices(points: readonly Point[], tolerance: number): number[] {
+/** Indices of the points Ramer-Douglas-Peucker keeps. */
+export function douglasPeuckerIndices(points: readonly Point[], tolerance: number): number[] {
   const n = points.length;
   if (n <= 2) return Array.from({ length: n }, (_, i) => i);
   const keep = new Uint8Array(n);

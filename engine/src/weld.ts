@@ -1,12 +1,15 @@
 // Merge shapes; "what an object covers".
 
 import { columnFromCentreline, railColumn } from './columns';
-import type { StitchObject } from './document';
+import { pathNode, type NewObject, type StitchObject } from './document';
 import { areaRegion } from './generate';
-import { closeRing, nestRings, offsetOutlines, polygonFromRings, type Region } from './geometry';
+import { bufferRegion, closeRing, nestRings, offsetOutlines, polygonFromRings, unionAll, type Region } from './geometry';
 import { douglasPeucker, materializePath } from './path';
-import type { Point } from './types';
+import type { PathNode, Point } from './types';
 import { isAreaType } from './types';
+
+/** Fill holes: how far each new hole fill reaches under the object around it, mm. */
+export const FILL_HOLES_MARGIN = 0.3;
 
 /** A band between two edges: one ring for an open column, nested rings for a closed one. */
 function band(left: Point[], right: Point[], closed: boolean): Region {
@@ -42,4 +45,57 @@ export function offsetObjectOutlines(o: StitchObject, d: number): Point[][] {
   if (!area.length && o.closed && o.points.length >= 3) area = polygonFromRings(materializePath(o.points, true));
   if (!area.length) return [];
   return offsetOutlines(area, d, 'round').map((ring) => douglasPeucker(ring, 0.05));
+}
+
+/** What an object covers, counting a closed line as the area it encloses. */
+export function enclosedArea(o: StitchObject): Region {
+  const area = objectArea(o);
+  if (area.length || !o.closed || o.points.length < 3) return area;
+  return polygonFromRings(materializePath(o.points, true));
+}
+
+/**
+ * An object's fields for new pieces made from it: no id or version, no hand-edited stitches,
+ * lettering data or entry/exit; its name only with `keepName` (else new pieces get their own).
+ */
+export function objectBase(o: StitchObject, keepName = true): NewObject {
+  const { id: _id, version: _version, name, ...rest } = o;
+  const base: NewObject = { ...rest, settings: { ...o.settings }, customStitches: null, textMeta: null, fillStart: null, fillEnd: null };
+  if (keepName) base.name = name;
+  return base;
+}
+
+/** A closed ring as corner nodes (simplified within 0.02 mm; the repeated end dropped). */
+export function ringNodes(ring: readonly Point[]): PathNode[] {
+  return douglasPeucker(closeRing(ring), 0.02)
+    .slice(0, -1)
+    .map(([x, y]) => pathNode(x, y));
+}
+
+/** One closed object per polygon of a region (outline and holes), on top of `base`. */
+export function regionObjects(region: Region, base: NewObject): NewObject[] {
+  return region
+    .map((poly) => ({ ...base, closed: true, rail2: [], stitchAngles: [], points: ringNodes(poly.outer), holes: poly.holes.map(ringNodes).filter((h) => h.length >= 3) }))
+    .filter((o) => o.points.length >= 3);
+}
+
+/**
+ * Weld: the union of the objects' areas as new objects with the first object's settings (a
+ * stitch type that isn't an area becomes tatami).
+ */
+export function weldObjects(objects: readonly StitchObject[]): NewObject[] {
+  const first = objects[0];
+  if (!first) return [];
+  const union = unionAll(objects.map(enclosedArea));
+  const settings = isAreaType(first.settings.stitchType) ? { ...first.settings } : { ...first.settings, stitchType: 'fill' as const };
+  return regionObjects(union, { ...objectBase(first, false), settings, groupId: null });
+}
+
+/** Fill holes: each hole as a new object with the same settings, grown by the margin. */
+export function fillHoleObjects(o: StitchObject, margin = FILL_HOLES_MARGIN): NewObject[] {
+  const base = objectBase(o, false);
+  return o.holes.flatMap((h) => {
+    const hole = polygonFromRings(materializePath(h, true));
+    return regionObjects(margin > 0 ? bufferRegion(hole, margin) : hole, base);
+  });
 }

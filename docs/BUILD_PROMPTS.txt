@@ -116,7 +116,7 @@ stitchpro-studio/
     src/transforms.ts     move/rotate/scale/skew/mirror and copy tools
     src/shapes.ts         standard shapes
     src/knockout.ts       knockout overlaps, column cutting, partial applique
-    src/splice.ts         cut objects along a line
+    src/cut.ts            cut objects along a line
     src/weld.ts           merge shapes; "what an object covers"
     src/laydown.ts        laydown under the design
     src/vector.ts         SVG path data -> stitch objects
@@ -710,7 +710,7 @@ Edit toolbar: File menu (New, Open, Save, Save as, Import machine file,
 Export, Export SVG, Print: worksheet, placement template, design image),
 Settings, hoop dropdown, Finish, Finish closed, Cancel, Undo, Redo, Cut,
 Copy, Paste, Delete, Reshape (R), Stitch angle (G), Polygon select
-(U), Edit stitches (E), Splice (Ctrl+Shift+K), Add hole, Set entry,
+(U), Edit stitches (E), Cut shapes (Ctrl+Shift+K), Add hole, Set entry,
 Set exit, Zoom -/+, Fit, Grid + spacing, Snap, Rulers, Measure, Center in
 hoop, units, SimStitch (S), Machine commands.
 Tools toolbar: Import artwork, Import SVG as stitches, Arrange menu (align
@@ -759,7 +759,7 @@ PROMPT 18 - DRAWING, SELECTING, TRANSFORMING
   turns with the stretch), rotate (Shift 15-degree steps), skew (affine
   shear x' = x - tan(a) (y - anchorY); diamond handles; Shift 5-degree
   steps), flip, align with the last selected, space evenly, centre in hoop.
-- Reshape nodes; smooth curves (prompt 5); splice, weld, fill holes,
+- Reshape nodes; smooth curves (prompt 5); cut, weld, fill holes,
   knockout (prompt 21).
 - Copy tools: copy/paste across tabs, duplicate, array, mirror,
   circle/kaleidoscope (every other copy reflected), continuous copy,
@@ -880,7 +880,7 @@ PROMPT 22 - EDITING TOOLS ON SHAPES
   are left as background.
 - Partial applique: a later applique piece's fabric outline cuts the
   earlier piece's cover satin (cutColumn).
-- Splice (Knife): a cut line; areas split exactly (polygonize the outline
+- Cut (Knife): a cut line; areas split exactly (polygonize the outline
   noded with the line), pieces ordered nearest-first from the entry with
   the exit piece last; columns/lines cut by the line thickened 0.13 mm and
   their ends extended back to the line by ray-segment intersection
@@ -933,7 +933,7 @@ PROMPT 24 - TESTS AND FINISHING
 
 - Unit tests for every generator (stitch counts, extents, spacing,
   maximum stitch length), the export plan, file round trips, text layout,
-  fonts, knockout/splice/weld, threads, hoops.
+  fonts, knockout/cut/weld, threads, hoops.
 - Editor tests driving tools with fake pointer/key events.
 - Server tests for every format (write, read back, compare).
 - Playwright tests for every feature through the real UI, using their own

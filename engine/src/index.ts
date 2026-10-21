@@ -16,7 +16,7 @@ export * from './export';
 export * from './transforms';
 export * from './shapes';
 export * from './knockout';
-export * from './splice';
+export * from './cut';
 export * from './weld';
 export * from './laydown';
 export * from './vector';

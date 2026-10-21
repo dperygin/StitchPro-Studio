@@ -147,7 +147,7 @@ export function Toolbars({ editor, serverOnline }: { editor: Editor; serverOnlin
         {B('tool.angle')}
         {B('tool.polygon')}
         {B('tool.stitches')}
-        {B('edit.splice')}
+        {B('tool.cut')}
         {B('edit.addHole')}
         {B('pick.entry')}
         {B('pick.exit')}
@@ -205,7 +205,7 @@ export function Toolbars({ editor, serverOnline }: { editor: Editor; serverOnlin
           </button>
         </label>
         <Sep />
-        <Menu label="Tools">
+        <Menu label="Tools" testId="menu-tools">
           {B('dialog.motifStamp')}
           {B('dialog.array')}
           {B('dialog.mirror')}

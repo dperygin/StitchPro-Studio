@@ -8,7 +8,18 @@ import {
   POOR_MATCH_DELTA_E,
   allocateId,
   arrayOffsets,
+  appliquePieces,
   buildText,
+  cutObject,
+  enclosedArea,
+  fillHoleObjects,
+  knockoutPlan,
+  laydownObjects,
+  partialAppliquePlan,
+  regionRings,
+  weldObjects,
+  type AppliqueOptions,
+  type LaydownShape,
   layoutText,
   letterMeta,
   type LetterAdjust,
@@ -1129,6 +1140,156 @@ export class Editor {
       },
       'Add border',
     );
+  }
+
+  // ---- shape tools (prompt 22) ----
+
+  /** Puts each planned object's pieces in its place in the sequence ([] removes it); returns the new ids. */
+  private applyPieces(plan: ReadonlyMap<number, readonly NewObject[]>): number[] {
+    const made: number[] = [];
+    this.doc.objects = this.doc.objects.flatMap((o) => {
+      const pieces = plan.get(o.id);
+      if (!pieces) return [o];
+      return pieces.map((p) => {
+        const n = createObject(this.doc, p);
+        this.noteVersion(n);
+        made.push(n.id);
+        return n;
+      });
+    });
+    this.order = this.order.filter((id) => !plan.has(id));
+    this.changed('base');
+    return made;
+  }
+
+  /** Drops plan entries for locked objects. */
+  private unlockedOnly(plan: Map<number, NewObject[]>): Map<number, NewObject[]> {
+    for (const id of [...plan.keys()]) if (this.object(id)?.locked) plan.delete(id);
+    return plan;
+  }
+
+  /**
+   * Cut shapes (knife): cuts the selected objects, or with nothing selected every visible
+   * object, along a line. The pieces are selected. Returns how many pieces were made.
+   */
+  cutWithLine(line: Point[]): number {
+    const targets = (this.order.length ? this.selectedObjects() : this.doc.objects.filter((o) => o.visible)).filter((o) => !o.locked);
+    const plan = new Map<number, NewObject[]>();
+    for (const o of targets) {
+      const pieces = cutObject(o, line);
+      if (pieces) plan.set(o.id, pieces);
+    }
+    if (!plan.size) {
+      this.setStatus('The line cuts nothing');
+      return 0;
+    }
+    const made = this.applyPieces(plan);
+    this.setSelection(made);
+    this.commit('Cut shapes');
+    this.setStatus(`Cut ${plan.size} object${plan.size === 1 ? '' : 's'} into ${made.length} pieces`);
+    return made.length;
+  }
+
+  /** Knockout overlaps: the selected objects cut away the parts of earlier objects under them. */
+  knockoutOverlaps(): number {
+    const cutters = [...this.order];
+    const plan = this.unlockedOnly(knockoutPlan(this.doc.objects, cutters));
+    if (!plan.size) {
+      this.setStatus('Nothing under the selection to knock out');
+      return 0;
+    }
+    this.applyPieces(plan);
+    this.setSelection(cutters);
+    this.commit('Knockout overlaps');
+    this.setStatus(`Knocked out ${plan.size} object${plan.size === 1 ? '' : 's'}`);
+    return plan.size;
+  }
+
+  /** Partial applique: in the selected applique pieces, later fabrics cut earlier cover satins. */
+  partialApplique(): number {
+    const ids = new Set(this.withGroups(this.order));
+    const plan = this.unlockedOnly(partialAppliquePlan(this.doc.objects.filter((o) => ids.has(o.id))));
+    if (!plan.size) {
+      this.setStatus('No earlier applique cover lies under a later fabric');
+      return 0;
+    }
+    const made = this.applyPieces(plan);
+    this.setSelection([...this.order, ...made]);
+    this.commit('Partial applique');
+    return plan.size;
+  }
+
+  /** Auto applique: each selected shape becomes a grouped placement, tack-down and cover. */
+  autoApplique(opts: Partial<AppliqueOptions> = {}): number {
+    const plan = new Map<number, NewObject[]>();
+    for (const o of this.selectedObjects()) {
+      if (o.locked) continue;
+      const rings = regionRings(enclosedArea(o));
+      if (!rings.length) continue;
+      plan.set(o.id, appliquePieces(rings, { color: [...o.color], thread: o.thread, groupId: this.nextGroupId++ }, opts));
+    }
+    if (!plan.size) {
+      this.setStatus('Select a closed shape for the applique');
+      return 0;
+    }
+    const made = this.applyPieces(plan);
+    this.setSelection(made);
+    this.commit('Auto applique');
+    return plan.size;
+  }
+
+  /** Laydown: a laydown object under the whole design, sewn first. */
+  addLaydown(shape: LaydownShape = 'outline', offset = 2): number {
+    const pieces = laydownObjects(this.doc.objects, shape, offset).map((p) => createObject(this.doc, p));
+    if (!pieces.length) {
+      this.setStatus('Nothing to lay down under');
+      return 0;
+    }
+    pieces.forEach((p) => this.noteVersion(p));
+    this.doc.objects = [...pieces, ...this.doc.objects];
+    this.setSelection(pieces.map((p) => p.id));
+    this.commit('Laydown');
+    return pieces.length;
+  }
+
+  /** Weld: the union of the selected areas as new objects with the first selected object's settings. */
+  weldSelection(): number {
+    const sel = this.selectedObjects().filter((o) => !o.locked);
+    if (sel.length < 2) return 0;
+    const pieces = weldObjects(sel);
+    if (!pieces.length) {
+      this.setStatus('Nothing to weld (select areas, columns or closed shapes)');
+      return 0;
+    }
+    // The welded objects take the place of the earliest selected one.
+    const ids = new Set(sel.map((o) => o.id));
+    const first = this.doc.objects.find((o) => ids.has(o.id))!;
+    const plan = new Map<number, NewObject[]>(sel.map((o) => [o.id, o === first ? pieces : []]));
+    const made = this.applyPieces(plan);
+    this.setSelection(made);
+    this.commit('Weld');
+    return made.length;
+  }
+
+  /** Fill holes: each hole of the selected objects becomes a new object (same settings) right after it. */
+  fillHoles(margin = 0.3): number {
+    const made: number[] = [];
+    this.doc.objects = this.doc.objects.flatMap((o) => {
+      if (!this.order.includes(o.id) || !o.holes.length || o.locked) return [o];
+      const fills = fillHoleObjects(o, margin).map((p) => createObject(this.doc, p));
+      fills.forEach((f) => {
+        this.noteVersion(f);
+        made.push(f.id);
+      });
+      return [o, ...fills];
+    });
+    if (!made.length) {
+      this.setStatus('The selection has no holes');
+      return 0;
+    }
+    this.setSelection(made);
+    this.commit('Fill holes');
+    return made.length;
   }
 
   // ---- sequencing by colour ----
