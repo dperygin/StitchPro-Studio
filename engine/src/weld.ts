@@ -3,7 +3,8 @@
 import { columnFromCentreline, railColumn } from './columns';
 import type { StitchObject } from './document';
 import { areaRegion } from './generate';
-import { closeRing, nestRings, polygonFromRings, type Region } from './geometry';
+import { closeRing, nestRings, offsetOutlines, polygonFromRings, type Region } from './geometry';
+import { douglasPeucker, materializePath } from './path';
 import type { Point } from './types';
 import { isAreaType } from './types';
 
@@ -30,4 +31,15 @@ export function objectArea(o: StitchObject): Region {
     return col ? band(col.r1, col.r2, o.closed) : [];
   }
   return [];
+}
+
+/**
+ * Outlines of what an object covers, offset by d mm (negative insets): for insert offset and
+ * add border. Closed lines count as the area they enclose.
+ */
+export function offsetObjectOutlines(o: StitchObject, d: number): Point[][] {
+  let area = objectArea(o);
+  if (!area.length && o.closed && o.points.length >= 3) area = polygonFromRings(materializePath(o.points, true));
+  if (!area.length) return [];
+  return offsetOutlines(area, d, 'round').map((ring) => douglasPeucker(ring, 0.05));
 }

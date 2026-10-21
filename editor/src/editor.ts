@@ -4,6 +4,11 @@
 import {
   StitchCache,
   applyClosestJoin,
+  arrayOffsets,
+  circleTransforms,
+  offsetObjectOutlines,
+  pathNode,
+  pointInRegion,
   buildExportPlan,
   createDocument,
   createObject,
@@ -35,7 +40,8 @@ import {
   type ThreadRef,
 } from '@stitchpro/engine';
 import { COMMANDS, keyCombo, type CommandId } from './commands';
-import { COMMIT_SOON_MS, NUDGE_BIG_FACTOR, NUDGE_MM, OBJECT_PICK_PX, PASTE_OFFSET_MM, RULER_PX } from './constants';
+import { COMMIT_SOON_MS, NUDGE_BIG_FACTOR, NUDGE_MM, OBJECT_PICK_PX, PASTE_OFFSET_MM, RULER_PX, SNAP_PX } from './constants';
+import { moveByColourBlock, optimizeColourChanges, sequenceByColour } from './sequence';
 import { FontLibrary } from './fonts';
 import { History, type Snapshot } from './history';
 import { ShapeCache, pickObject, unionBox, type Box } from './hittest';
@@ -70,7 +76,7 @@ export type ChangeKind = 'base' | 'live' | 'overlay' | 'state';
 export type ChangeListener = (kind: ChangeKind) => void;
 
 /** Things only the host app can do (file pickers, downloads, dialogs). */
-export type HostAction = 'new' | 'open' | 'save' | 'saveAs' | 'export' | 'settings';
+export type HostAction = 'new' | 'open' | 'save' | 'saveAs' | 'export' | 'settings' | 'dialog';
 export type ActionListener = (action: HostAction, arg?: unknown) => void;
 
 /** Copied objects, shared between the tabs of one app. */
@@ -136,6 +142,8 @@ export class Editor {
   viewport = { width: 0, height: 0 };
   drawMode: DrawMode = { stitchType: 'running', closed: false };
   shapeKind: ShapeKind = 'rectangle';
+  /** Selection handles: resize, or (after clicking the selection again) rotate and skew. */
+  handleMode: 'scale' | 'rotate' = 'scale';
   currentColor: RGB = [0, 0, 0];
   /** Pointer position in design mm (null when off the canvas). */
   pointer: Point | null = null;
@@ -929,6 +937,236 @@ export class Editor {
     if (!this.order.length) return;
     this.removeObjects(this.withGroups(this.order));
     this.commit(label);
+  }
+
+  // ---- snapping and guides ----
+
+  /** Snaps a design point to guides, then grid lines, within 8 px (when snap is on; Alt holds it free). */
+  snapPoint(p: Point, e: { alt?: boolean } = {}): Point {
+    if (!this.snap || e.alt) return p;
+    const tol = this.pxToMm(SNAP_PX);
+    const nearest = (v: number, lines: number[]) => {
+      let best: number | null = null;
+      for (const l of lines) if (Math.abs(l - v) <= tol && (best === null || Math.abs(l - v) < Math.abs(best - v))) best = l;
+      return best;
+    };
+    const g = this.gridSpacing;
+    const axis = (v: number, guideAxis: 'h' | 'v') => {
+      const guide = nearest(v, this.doc.guides.filter((x) => x.axis === guideAxis).map((x) => x.pos));
+      if (guide !== null) return guide;
+      const grid = Math.round(v / g) * g;
+      return Math.abs(grid - v) <= tol ? grid : v;
+    };
+    return [axis(p[0], 'v'), axis(p[1], 'h')];
+  }
+
+  /** Adds a guide line (axis 'v' = vertical at x = pos, 'h' = horizontal at y = pos); returns its index. */
+  addGuide(axis: 'h' | 'v', pos: number): number {
+    this.doc.guides = [...this.doc.guides, { axis, pos }];
+    this.changed('base');
+    return this.doc.guides.length - 1;
+  }
+
+  moveGuide(index: number, pos: number): void {
+    this.doc.guides = this.doc.guides.map((g, i) => (i === index ? { ...g, pos } : g));
+    this.changed('base');
+  }
+
+  removeGuide(index: number): void {
+    this.doc.guides = this.doc.guides.filter((_, i) => i !== index);
+    this.changed('base');
+  }
+
+  setHandleMode(mode: 'scale' | 'rotate'): void {
+    if (mode === this.handleMode) return;
+    this.handleMode = mode;
+    this.changed('overlay');
+  }
+
+  // ---- polygon select ----
+
+  /**
+   * Polygon select: objects with every outline, hole, rail and stitch point inside the polygon
+   * (even-odd ray-casting test).
+   */
+  polygonSelect(polygon: readonly Point[], add = false): void {
+    if (polygon.length < 3) return;
+    const ring: Point[] = [...polygon, polygon[0]!];
+    const region = [{ outer: ring, holes: [] }];
+    const inside = (p: Point) => pointInRegion(region, p) !== 'outside';
+    const hits = this.doc.objects.filter((o) => {
+      if (!o.visible || o.locked) return false;
+      const s = this.shapes.get(o);
+      const pts = [...s.outline, ...s.holes.flat(), ...s.rail2, ...this.stitches(o)];
+      return pts.length > 0 && pts.every(inside);
+    });
+    this.setSelection(add ? [...this.order, ...hits.map((o) => o.id)] : hits.map((o) => o.id));
+  }
+
+  // ---- align and space ----
+
+  /** Aligns the selection with the last selected object. */
+  alignSelection(side: 'left' | 'centre' | 'right' | 'top' | 'middle' | 'bottom'): void {
+    const sel = this.selectedObjects();
+    const ref = sel[sel.length - 1];
+    if (sel.length < 2 || !ref) return;
+    const r = this.shapes.get(ref).box;
+    for (const o of sel.slice(0, -1)) {
+      if (o.locked) continue;
+      const b = this.shapes.get(o).box;
+      const dx =
+        side === 'left' ? r.minX - b.minX : side === 'right' ? r.maxX - b.maxX : side === 'centre' ? (r.minX + r.maxX - b.minX - b.maxX) / 2 : 0;
+      const dy =
+        side === 'top' ? r.minY - b.minY : side === 'bottom' ? r.maxY - b.maxY : side === 'middle' ? (r.minY + r.maxY - b.minY - b.maxY) / 2 : 0;
+      if (dx || dy) this.replace(translateObject(o, dx, dy));
+    }
+    this.commit(`Align ${side}`);
+  }
+
+  /** Spaces the selected objects' centres evenly between the outermost two. */
+  spaceEvenly(axis: 'x' | 'y' = 'x'): void {
+    const sel = this.selectedObjects();
+    if (sel.length < 3) return;
+    const centre = (o: StitchObject) => {
+      const b = this.shapes.get(o).box;
+      return axis === 'x' ? (b.minX + b.maxX) / 2 : (b.minY + b.maxY) / 2;
+    };
+    const sorted = [...sel].sort((a, b) => centre(a) - centre(b));
+    const first = centre(sorted[0]!);
+    const step = (centre(sorted[sorted.length - 1]!) - first) / (sorted.length - 1);
+    sorted.forEach((o, i) => {
+      const d = first + i * step - centre(o);
+      if (Math.abs(d) > 1e-9 && !o.locked) this.replace(translateObject(o, axis === 'x' ? d : 0, axis === 'y' ? d : 0));
+    });
+    this.commit('Space evenly');
+  }
+
+  // ---- copy tools ----
+
+  /** Copies of the selection under each transform (the first transform is the original's own place). */
+  private placeCopies(transforms: readonly Affine[], label: string): void {
+    const sel = this.selectedObjects();
+    if (!sel.length || transforms.length < 2) return;
+    const ids = transforms.slice(1).flatMap((m) => this.addCopies(sel, [0, 0], (o) => transformObject(o, m)));
+    this.setSelection([...sel.map((o) => o.id), ...ids]);
+    this.commit(label);
+  }
+
+  /** Array: rows x cols copies, dx and dy mm apart. */
+  arrayCopies(rows: number, cols: number, dx: number, dy: number): void {
+    this.placeCopies(arrayOffsets(rows, cols, dx, dy), 'Array');
+  }
+
+  /** Mirror: a mirrored copy beside the selection (across its right edge, or its bottom edge). */
+  mirrorCopy(vertical = false, gap = 0): void {
+    const box = this.selectionBox();
+    if (!box) return;
+    const m = vertical ? mirror(0, box.maxY + gap / 2, true) : mirror(box.maxX + gap / 2, 0);
+    this.placeCopies([translation(0, 0), m], 'Mirror');
+  }
+
+  /** Circle / kaleidoscope: n placements round a centre, every other one reflected with `reflect`. */
+  circleCopies(n: number, centre: Point, reflect = false): void {
+    this.placeCopies(circleTransforms(n, centre[0], centre[1], reflect), reflect ? 'Kaleidoscope' : 'Circle');
+  }
+
+  /** New outline objects offset from what the selection covers (negative distance insets). */
+  private offsetCopies(distance: number, init: (o: StitchObject) => NewObject, label: string): number {
+    const made: number[] = [];
+    for (const o of this.selectedObjects()) {
+      for (const ring of offsetObjectOutlines(o, distance)) {
+        const points = ring.slice(0, -1).map(([x, y]) => pathNode(x, y));
+        if (points.length < 3) continue;
+        made.push(this.addObject(createObject(this.doc, { color: [...o.color], thread: o.thread, closed: true, points, ...init(o) })).id);
+      }
+    }
+    if (made.length) {
+      this.setSelection(made);
+      this.commit(label);
+    } else this.setStatus('Nothing to offset (select a closed shape)');
+    return made.length;
+  }
+
+  /** Insert offset: a running outline offset from the selection. */
+  insertOffset(distance: number): number {
+    return this.offsetCopies(distance, () => ({ stitchType: 'running' }), 'Insert offset');
+  }
+
+  /** Add border: a motif line along an offset of the selection. */
+  addBorder(distance: number, motifName = 'wave'): number {
+    return this.offsetCopies(
+      distance,
+      (o) => {
+        const settings = { ...o.settings, stitchType: 'motif_line' as const, motifName };
+        return { settings, name: `Border ${motifName}` };
+      },
+      'Add border',
+    );
+  }
+
+  // ---- sequencing by colour ----
+
+  /** Back (-1) or forward (+1) one colour block. */
+  moveByColour(dir: 1 | -1): void {
+    const ids = this.withGroups(this.order);
+    if (!ids.length) return;
+    this.doc.objects = moveByColourBlock(this.doc.objects, ids, dir);
+    this.commit(dir < 0 ? 'Back 1 colour' : 'Forward 1 colour');
+  }
+
+  sequenceByColour(): void {
+    this.doc.objects = sequenceByColour(this.doc.objects);
+    this.commit('Sequence by colour');
+  }
+
+  /** Optimize colour changes: objects join earlier runs of their colour where nothing in between overlaps. */
+  optimizeColourChanges(): void {
+    const before = this.doc.objects;
+    this.doc.objects = optimizeColourChanges(before, (o) => this.shapes.get(o).box);
+    this.commit('Optimize colour changes');
+  }
+
+  // ---- reshape ----
+
+  /** Inserts a node where the outline passes nearest p (on the segment between two nodes). */
+  insertNode(id: number, p: Point): boolean {
+    const o = this.object(id);
+    if (!o || o.locked || o.points.length < 2) return false;
+    const n = o.points.length;
+    const segs = o.closed ? n : n - 1;
+    let best = { i: -1, d: Infinity };
+    for (let i = 0; i < segs; i++) {
+      const a = o.points[i]!;
+      const b = o.points[(i + 1) % n]!;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 > 0 ? Math.max(0, Math.min(1, ((p[0] - a.x) * dx + (p[1] - a.y) * dy) / len2)) : 0;
+      const d = Math.hypot(a.x + dx * t - p[0], a.y + dy * t - p[1]);
+      if (d < best.d) best = { i, d };
+    }
+    if (best.i < 0) return false;
+    const a = o.points[best.i]!;
+    const b = o.points[(best.i + 1) % n]!;
+    const type = a.type === 'curve' && b.type === 'curve' ? 'curve' : 'corner';
+    const points = [...o.points.slice(0, best.i + 1), pathNode(p[0], p[1], type), ...o.points.slice(best.i + 1)];
+    this.replace({ ...o, points });
+    this.commit('Insert node');
+    return true;
+  }
+
+  /** Deletes a node (keeping at least 2 nodes, 3 for closed shapes). */
+  deleteNode(id: number, index: number): boolean {
+    const o = this.object(id);
+    if (!o || o.locked) return false;
+    const onRail1 = index < o.points.length;
+    const list = onRail1 ? o.points : o.rail2;
+    const i = onRail1 ? index : index - o.points.length;
+    if (list.length <= (o.closed && onRail1 ? 3 : 2) || !list[i]) return false;
+    const next = list.filter((_, j) => j !== i);
+    this.replace(onRail1 ? { ...o, points: next } : { ...o, rail2: next });
+    this.commit('Delete node');
+    return true;
   }
 
   // ---- properties ----

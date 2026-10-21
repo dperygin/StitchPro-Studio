@@ -41,7 +41,9 @@ function withObjects() {
     color: [0, 94, 184],
   });
   doc.objects.push(line, square);
-  return { ed: new Editor(doc), line, square };
+  const ed = new Editor(doc);
+  ed.showRulers = false; // these tests work near the origin, under where the rulers would be
+  return { ed, line, square };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -178,6 +180,7 @@ describe('moving', () => {
 describe('drawing', () => {
   it('adds corner nodes on left click and curve nodes on right click; Enter finishes', () => {
     const ed = new Editor(createDocument({ closestJoin: false }));
+    ed.showRulers = false;
     ed.setTool('draw');
     ed.drawMode = { stitchType: 'running', closed: false };
     click(ed, 0, 0);
@@ -194,6 +197,7 @@ describe('drawing', () => {
 
   it('finishes on a double click and makes closed shapes in closed mode', () => {
     const ed = new Editor(createDocument({ closestJoin: false }));
+    ed.showRulers = false;
     ed.setTool('draw');
     ed.drawMode = { stitchType: 'fill', closed: true };
     click(ed, 0, 0, { time: 0 });
@@ -207,6 +211,7 @@ describe('drawing', () => {
 
   it('Backspace removes the last node; Esc cancels; too few nodes adds nothing', () => {
     const ed = new Editor(createDocument({ closestJoin: false }));
+    ed.showRulers = false;
     ed.setTool('draw');
     click(ed, 0, 0);
     click(ed, 5, 0);

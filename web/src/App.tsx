@@ -15,6 +15,7 @@ import { PropertiesPanel } from './PropertiesPanel';
 import { StitchList } from './StitchList';
 import { PaletteBar } from './PaletteBar';
 import { Settings } from './Settings';
+import { ToolDialog } from './Dialogs';
 import { download, openDesigns, saveDesign } from './saveFile';
 
 type ServerState = 'checking' | 'online' | 'offline';
@@ -29,6 +30,7 @@ export function App() {
   const [activeId, setActiveId] = useState(() => tabs[0]!.id);
   const [server, setServer] = useState<ServerState>('checking');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [dialog, setDialog] = useState<string | null>(null);
   const active = tabs.find((t) => t.id === activeId) ?? tabs[0]!;
   const editor = active.editor;
   useEditorState(editor);
@@ -66,6 +68,8 @@ export function App() {
         await exportFile(typeof arg === 'string' ? arg : 'dst');
       } else if (action === 'settings') {
         setSettingsOpen(true);
+      } else if (action === 'dialog' && typeof arg === 'string') {
+        setDialog(arg);
       }
     } catch (e) {
       editor.setStatus((e as Error).message);
@@ -144,6 +148,7 @@ export function App() {
         </span>
       </footer>
       {settingsOpen && <Settings editor={editor} onClose={() => setSettingsOpen(false)} />}
+      {dialog && <ToolDialog key={dialog} editor={editor} id={dialog} onClose={() => setDialog(null)} />}
     </div>
   );
 }

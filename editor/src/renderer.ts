@@ -10,6 +10,8 @@ import { JUMP_MARK, type MarkKind, type Point, type StitchObject } from '@stitch
 import { RULER_PX, SIM_THREAD_MM } from './constants';
 import type { ChangeKind, Editor } from './editor';
 import { unionBox, type Box } from './hittest';
+import { selectionHandles } from './handles';
+import { MOVE_HANDLE_RADIUS_PX } from './constants';
 
 /** The parts of Path2D the renderer uses (a fake can stand in for tests). */
 export interface PathLike {
@@ -159,6 +161,7 @@ export class Renderer {
       if (o?.visible) this.drawObject(ctx, o);
     }
     this.drawOverlay(ctx);
+    this.drawScreenOverlay(ctx);
     if (editor.showRulers) this.drawRulers(ctx);
   }
 
@@ -346,6 +349,56 @@ export class Renderer {
         ctx.rect(n.x - size, n.y - size, 2 * size, 2 * size);
         ctx.fill();
       }
+    }
+  }
+
+  /** Guides and selection handles, in screen space. */
+  private drawScreenOverlay(ctx: CanvasRenderingContext2D): void {
+    const { editor, theme, ratio } = this;
+    const v = editor.view;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#00a3a3';
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    for (const g of editor.doc.guides) {
+      if (g.axis === 'h') {
+        const y = g.pos * v.zoom + v.panY;
+        ctx.moveTo(0, y);
+        ctx.lineTo(w / ratio, y);
+      } else {
+        const x = g.pos * v.zoom + v.panX;
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h / ratio);
+      }
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const handles = selectionHandles(editor);
+    if (!handles.length) return;
+    ctx.fillStyle = theme.background;
+    ctx.strokeStyle = theme.selection;
+    for (const hd of handles) {
+      ctx.beginPath();
+      if (hd.kind === 'move') {
+        ctx.setLineDash([2, 3]);
+        ctx.arc(hd.x, hd.y, MOVE_HANDLE_RADIUS_PX, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        continue;
+      }
+      if (hd.kind.startsWith('rot') || hd.kind === 'rotate') ctx.arc(hd.x, hd.y, 4.5, 0, Math.PI * 2);
+      else if (hd.kind.startsWith('skew')) {
+        ctx.moveTo(hd.x, hd.y - 5);
+        ctx.lineTo(hd.x + 5, hd.y);
+        ctx.lineTo(hd.x, hd.y + 5);
+        ctx.lineTo(hd.x - 5, hd.y);
+        ctx.closePath();
+      } else ctx.rect(hd.x - 4, hd.y - 4, 8, 8);
+      ctx.fill();
+      ctx.stroke();
     }
   }
 

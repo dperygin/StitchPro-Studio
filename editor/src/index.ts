@@ -6,6 +6,8 @@ export * from './input';
 export * from './view';
 export * from './history';
 export * from './hittest';
+export * from './handles';
+export * from './sequence';
 export * from './fonts';
 export * from './fonteditor';
 export * from './svgexport';

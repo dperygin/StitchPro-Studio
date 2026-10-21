@@ -25,6 +25,9 @@ export type CommandId = string;
 const selected = (ed: Editor) => ed.selectionOrder.length > 0;
 const later = (id: string, label: string, group: CommandGroup, keys?: string[]): Command => ({ id, label, group, keys, ready: false, run: () => {} });
 
+/** A copy tool whose options the host asks for in a dialog (then calls the editor method). */
+const dialog = (id: string, label: string): Command => ({ id, label, group: 'dialogs', ready: true, enabled: selected, run: (ed) => ed.requestAction('dialog', id) });
+
 const OUTLINE: StitchType[] = ['running', 'satin', 'zigzag', 'e_stitch', 'motif_line'];
 const FILL: StitchType[] = ['fill', 'satin_fill', 'outline', 'motif_fill', 'contour', 'stipple', 'cross_stitch'];
 
@@ -126,7 +129,7 @@ export const COMMANDS: readonly Command[] = [
   { id: 'select.previous', label: 'Previous object', group: 'edit', keys: ['Shift+Tab'], ready: true, run: (ed) => ed.selectNext(-1) },
   { id: 'tool.reshape', label: 'Reshape', group: 'edit', keys: ['R'], ready: true, checked: (ed) => ed.toolName === 'reshape', run: (ed) => ed.setTool('reshape') },
   { id: 'tool.angle', label: 'Stitch angle', group: 'edit', keys: ['G'], ready: true, checked: (ed) => ed.toolName === 'angle', run: (ed) => ed.setTool('angle') },
-  later('tool.polygon', 'Polygon select', 'edit', ['U']),
+  { id: 'tool.polygon', label: 'Polygon select', group: 'edit', keys: ['U'], ready: true, checked: (ed) => ed.toolName === 'polygon', run: (ed) => ed.setTool('polygon') },
   { id: 'tool.stitches', label: 'Edit stitches', group: 'edit', keys: ['E'], ready: true, checked: (ed) => ed.toolName === 'stitches', run: (ed) => ed.setTool('stitches') },
   later('edit.splice', 'Splice', 'edit', ['Ctrl+Shift+K']),
   {
@@ -172,13 +175,27 @@ export const COMMANDS: readonly Command[] = [
   { id: 'edit.applyProperties', label: 'Apply properties', group: 'tools', ready: true, enabled: (ed) => selected(ed) && ed.hasCopiedProperties, run: (ed) => ed.applyProperties() },
 
   // ---- arrange (prompt 18) ----
-  later('arrange.align', 'Align with the last selected', 'arrange'),
+  {
+    id: 'arrange.align',
+    label: 'Align with the last selected',
+    group: 'arrange',
+    ready: true,
+    enabled: (ed) => ed.selectionOrder.length > 1,
+    run: (ed, side) => ed.alignSelection((side as 'left' | 'centre' | 'right' | 'top' | 'middle' | 'bottom') ?? 'left'),
+  },
   later('arrange.weld', 'Weld', 'arrange'),
-  later('arrange.byColour', 'Sequence by colour', 'arrange'),
-  later('arrange.backColour', 'Back 1 colour', 'arrange'),
-  later('arrange.forwardColour', 'Forward 1 colour', 'arrange'),
-  later('arrange.optimize', 'Optimize colour changes', 'arrange'),
-  later('arrange.spaceEvenly', 'Space evenly', 'arrange'),
+  { id: 'arrange.byColour', label: 'Sequence by colour', group: 'arrange', ready: true, enabled: (ed) => ed.doc.objects.length > 1, run: (ed) => ed.sequenceByColour() },
+  { id: 'arrange.backColour', label: 'Back 1 colour', group: 'arrange', ready: true, enabled: selected, run: (ed) => ed.moveByColour(-1) },
+  { id: 'arrange.forwardColour', label: 'Forward 1 colour', group: 'arrange', ready: true, enabled: selected, run: (ed) => ed.moveByColour(1) },
+  { id: 'arrange.optimize', label: 'Optimize colour changes', group: 'arrange', ready: true, enabled: (ed) => ed.doc.objects.length > 1, run: (ed) => ed.optimizeColourChanges() },
+  {
+    id: 'arrange.spaceEvenly',
+    label: 'Space evenly',
+    group: 'arrange',
+    ready: true,
+    enabled: (ed) => ed.selectionOrder.length > 2,
+    run: (ed, axis) => ed.spaceEvenly(axis === 'y' ? 'y' : 'x'),
+  },
   { id: 'arrange.bySelection', label: 'Sequence by selection', group: 'arrange', ready: true, enabled: (ed) => ed.selectionOrder.length > 1, run: (ed) => ed.sequenceBySelection() },
   { id: 'arrange.start', label: 'Move to start', group: 'arrange', ready: true, enabled: selected, run: (ed) => ed.moveSelectionIn('start') },
   { id: 'arrange.up', label: 'Move up', group: 'arrange', ready: true, enabled: selected, run: (ed) => ed.moveSelectionIn('up') },
@@ -189,11 +206,11 @@ export const COMMANDS: readonly Command[] = [
 
   // ---- dialog tools (later prompts) ----
   later('dialog.motifStamp', 'Motif stamp…', 'dialogs'),
-  later('dialog.array', 'Array…', 'dialogs'),
-  later('dialog.mirror', 'Mirror…', 'dialogs'),
-  later('dialog.kaleidoscope', 'Circle / Kaleidoscope…', 'dialogs'),
-  later('dialog.insertOffset', 'Insert offset…', 'dialogs'),
-  later('dialog.addBorder', 'Add border…', 'dialogs'),
+  dialog('dialog.array', 'Array…'),
+  dialog('dialog.mirror', 'Mirror…'),
+  dialog('dialog.kaleidoscope', 'Circle / Kaleidoscope…'),
+  dialog('dialog.insertOffset', 'Insert offset…'),
+  dialog('dialog.addBorder', 'Add border…'),
   later('dialog.autoApplique', 'Auto applique…', 'dialogs'),
   { id: 'dialog.smooth', label: 'Smooth curves', group: 'dialogs', ready: true, enabled: selected, run: (ed) => ed.smoothSelection() },
   later('dialog.knockout', 'Knockout overlaps…', 'dialogs'),

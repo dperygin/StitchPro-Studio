@@ -1,12 +1,13 @@
 // Tools: how pointer and key input becomes edits. Each tool works on the Editor's public API.
 
 import { formatLength } from './units';
-import { DOUBLE_CLICK_MS, DRAG_THRESHOLD_PX, NODE_PICK_PX, NODE_WIDTH_STEP_MM } from './constants';
+import { DOUBLE_CLICK_MS, DRAG_THRESHOLD_PX, NODE_PICK_PX, NODE_WIDTH_STEP_MM, OBJECT_PICK_PX, RULER_PX } from './constants';
+import { handleAt, handleTransform, type HandleKind } from './handles';
 import { objectsInBox, pickNode, type Box } from './hittest';
-import { naturalAspect, pathNode, standardShape, translateObject, type PathNode, type Point, type StitchObject } from '@stitchpro/engine';
+import { naturalAspect, pathNode, standardShape, transformObject, translateObject, type PathNode, type Point, type StitchObject } from '@stitchpro/engine';
 import type { Editor, KeyInput, PointerInput } from './editor';
 
-export type ToolName = 'select' | 'draw' | 'shape' | 'reshape' | 'stitches' | 'pick' | 'angle' | 'measure' | 'letters';
+export type ToolName = 'select' | 'draw' | 'shape' | 'polygon' | 'reshape' | 'stitches' | 'pick' | 'angle' | 'measure' | 'letters';
 
 /** What a tool wants drawn on the overlay (in design mm). */
 export interface ToolOverlay {
@@ -63,23 +64,56 @@ interface Press {
 
 // ---- select ----
 
+type SelectPress =
+  | { mode: 'move' | 'box'; at: PointerInput; start: Point; dragging: boolean; originals: StitchObject[]; wasSelected: boolean }
+  | { mode: 'handle'; kind: HandleKind; at: PointerInput; start: Point; dragging: boolean; originals: StitchObject[]; box: Box }
+  | { mode: 'guide'; at: PointerInput; start: Point; dragging: boolean; index: number; axis: 'h' | 'v'; created: boolean };
+
 class SelectTool extends BaseTool {
   readonly name = 'select';
-  private press: (Press & { mode: 'move' | 'box'; originals: StitchObject[] }) | null = null;
+  private press: SelectPress | null = null;
   private current: Point | null = null;
 
   override pointerDown(e: PointerInput): void {
     if (e.button !== undefined && e.button !== 0) return;
     const ed = this.editor;
     const start = ed.toDesign(e);
+    this.current = start;
+
+    // Guides: drag a new one out of a ruler, or grab an existing one.
+    if (ed.showRulers && (e.y < RULER_PX || e.x < RULER_PX)) {
+      const axis = e.y < RULER_PX ? 'h' : 'v';
+      const index = ed.addGuide(axis, axis === 'h' ? start[1] : start[0]);
+      this.press = { mode: 'guide', at: e, start, dragging: true, index, axis, created: true };
+      return;
+    }
+    const tol = ed.pxToMm(4);
+    const g = ed.doc.guides.findIndex((x) => Math.abs((x.axis === 'h' ? start[1] : start[0]) - x.pos) <= tol);
+    if (g >= 0 && !ed.objectAt(e)) {
+      const guide = ed.doc.guides[g]!;
+      this.press = { mode: 'guide', at: e, start, dragging: false, index: g, axis: guide.axis, created: false };
+      return;
+    }
+
+    // Selection handles.
+    const handle = handleAt(ed, e);
+    if (handle) {
+      const originals = ed.selectedObjects().filter((o) => !o.locked);
+      this.press = { mode: 'handle', kind: handle.kind, at: e, start, dragging: false, originals, box: ed.selectionBox(originals)! };
+      return;
+    }
+
     const hit = ed.objectAt(e);
+    const wasSelected = !!hit && ed.isSelected(hit.id);
     if (hit) {
       if (e.ctrl || e.shift) ed.toggleSelected(hit.id);
-      else if (!ed.isSelected(hit.id)) ed.select(hit.id);
+      else if (!wasSelected) {
+        ed.select(hit.id);
+        ed.setHandleMode('scale');
+      }
     }
     const mode = hit && ed.isSelected(hit.id) ? 'move' : 'box';
-    this.press = { at: e, start, dragging: false, mode, originals: mode === 'move' ? ed.selectedObjects().filter((o) => !o.locked) : [] };
-    this.current = start;
+    this.press = { mode, at: e, start, dragging: false, wasSelected, originals: mode === 'move' ? ed.selectedObjects().filter((o) => !o.locked) : [] };
   }
 
   override pointerMove(e: PointerInput): void {
@@ -89,13 +123,19 @@ class SelectTool extends BaseTool {
     if (!p.dragging) {
       if (!isDrag(p.at, e)) return;
       p.dragging = true;
-      if (p.mode === 'move') ed.beginLive(p.originals.map((o) => o.id));
+      if (p.mode === 'move' || p.mode === 'handle') ed.beginLive(p.originals.map((o) => o.id));
     }
     this.current = ed.toDesign(e);
-    if (p.mode === 'move') {
+    if (p.mode === 'guide') {
+      const pos = p.axis === 'h' ? this.current[1] : this.current[0];
+      ed.moveGuide(p.index, pos);
+    } else if (p.mode === 'move') {
       const dx = this.current[0] - p.start[0];
       const dy = this.current[1] - p.start[1];
       for (const o of p.originals) ed.replace(translateObject(o, dx, dy));
+    } else if (p.mode === 'handle') {
+      const { m } = handleTransform(p.kind, p.box, p.start, this.current, !!e.shift);
+      for (const o of p.originals) ed.replace(transformObject(o, m));
     }
   }
 
@@ -104,6 +144,25 @@ class SelectTool extends BaseTool {
     if (!p) return;
     const ed = this.editor;
     this.press = null;
+    this.current = null;
+    if (p.mode === 'guide') {
+      // Dropped back on a ruler: the guide goes away.
+      const onRuler = p.axis === 'h' ? e.y < RULER_PX : e.x < RULER_PX;
+      if (onRuler) ed.removeGuide(p.index);
+      if (p.dragging || p.created) ed.commit(onRuler ? 'Remove guide' : 'Guide');
+      return;
+    }
+    if (p.mode === 'handle') {
+      if (p.dragging) {
+        const { label } = handleTransform(p.kind, p.box, p.start, ed.toDesign(e), !!e.shift);
+        ed.endLive();
+        ed.commit(label);
+      } else if (p.kind === 'move') {
+        // A click (no drag) on the middle of the selection switches resize / rotate handles.
+        ed.setHandleMode(ed.handleMode === 'scale' ? 'rotate' : 'scale');
+      }
+      return;
+    }
     if (p.dragging && p.mode === 'move') {
       ed.endLive();
       ed.commit('Move');
@@ -111,10 +170,12 @@ class SelectTool extends BaseTool {
       const box = this.boxFrom(p.start, ed.toDesign(e));
       const inside = objectsInBox(ed.doc, ed.shapes, box).map((o) => o.id);
       ed.setSelection(e.ctrl || e.shift ? [...ed.selectionOrder, ...inside] : inside);
+    } else if (p.mode === 'move' && p.wasSelected && !e.ctrl && !e.shift) {
+      // Clicking the selection again switches between resize and rotate/skew handles.
+      ed.setHandleMode(ed.handleMode === 'scale' ? 'rotate' : 'scale');
     } else if (!ed.objectAt(e) && !e.ctrl && !e.shift) {
       ed.clearSelection();
     }
-    this.current = null;
     ed.changed('overlay');
   }
 
@@ -129,10 +190,12 @@ class SelectTool extends BaseTool {
   override cancel(): void {
     const p = this.press;
     this.press = null;
-    if (p?.dragging && p.mode === 'move') {
+    if (!p) return;
+    if ((p.mode === 'move' || p.mode === 'handle') && p.dragging) {
       for (const o of p.originals) this.editor.replace(o);
       this.editor.endLive();
     }
+    if (p.mode === 'guide' && p.created) this.editor.removeGuide(p.index);
   }
 
   private boxFrom(a: Point, b: Point): Box {
@@ -154,6 +217,7 @@ class DrawTool extends BaseTool {
   private last: PointerInput | null = null;
   /** Two-rail satin / Column: rail 1, kept while rail 2 is digitized. */
   private rail1: PathNode[] | null = null;
+  private cursor: Point | null = null;
 
   override pointerDown(e: PointerInput): void {
     const ed = this.editor;
@@ -166,7 +230,7 @@ class DrawTool extends BaseTool {
       return;
     }
     if (e.button === 1) return;
-    const [x, y] = ed.toDesign(e);
+    const [x, y] = this.place(e);
     this.nodes.push(pathNode(x, y, e.button === 2 ? 'curve' : 'corner'));
     ed.setStatus(`${this.nodes.length} node${this.nodes.length === 1 ? '' : 's'} - Enter or double click to finish, Esc to cancel`);
     ed.changed('overlay');
@@ -196,6 +260,28 @@ class DrawTool extends BaseTool {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Where a click puts the next node: Ctrl constrains the line from the previous node to
+   * 15 degree steps; otherwise the point snaps to guides and the grid (Alt holds it free).
+   */
+  private place(e: PointerInput): Point {
+    const ed = this.editor;
+    const p = ed.toDesign(e);
+    const prev = this.nodes[this.nodes.length - 1];
+    if (e.ctrl && prev) {
+      const dx = p[0] - prev.x;
+      const dy = p[1] - prev.y;
+      const len = Math.hypot(dx, dy);
+      const a = (Math.round((Math.atan2(dy, dx) * 180) / Math.PI / 15) * 15 * Math.PI) / 180;
+      return [prev.x + len * Math.cos(a), prev.y + len * Math.sin(a)];
+    }
+    return ed.snapPoint(p, e);
+  }
+
+  override pointerMove(e: PointerInput): void {
+    this.cursor = this.nodes.length ? this.place(e) : this.editor.snapPoint(this.editor.toDesign(e), e);
   }
 
   /** Finishes the shape being digitized (closed or open). */
@@ -263,7 +349,7 @@ class DrawTool extends BaseTool {
   }
 
   override overlay(): ToolOverlay {
-    return { nodes: this.nodes, cursor: this.editor.pointer ?? undefined, rail: this.rail1 ?? undefined };
+    return { nodes: this.nodes, cursor: this.cursor ?? this.editor.pointer ?? undefined, rail: this.rail1 ?? undefined };
   }
 }
 
@@ -277,13 +363,13 @@ class ShapeTool extends BaseTool {
 
   override pointerDown(e: PointerInput): void {
     if (e.button !== undefined && e.button !== 0) return;
-    this.start = this.editor.toDesign(e);
+    this.start = this.editor.snapPoint(this.editor.toDesign(e), e);
     this.end = this.start;
   }
 
   override pointerMove(e: PointerInput): void {
     if (!this.start) return;
-    this.end = this.editor.toDesign(e);
+    this.end = this.editor.snapPoint(this.editor.toDesign(e), e);
     this.square = !!e.ctrl;
   }
 
@@ -291,7 +377,7 @@ class ShapeTool extends BaseTool {
     const ed = this.editor;
     const a = this.start;
     if (!a) return;
-    this.end = ed.toDesign(e);
+    this.end = ed.snapPoint(ed.toDesign(e), e);
     this.square = !!e.ctrl;
     const box = this.box()!;
     this.start = null;
@@ -329,17 +415,85 @@ class ShapeTool extends BaseTool {
   }
 }
 
+// ---- polygon select ----
+
+class PolygonTool extends BaseTool {
+  readonly name = 'polygon';
+  private points: Point[] = [];
+  private last: PointerInput | null = null;
+  private additive = false;
+
+  override pointerDown(e: PointerInput): void {
+    const prev = this.last;
+    this.last = e;
+    if (prev && e.time !== undefined && prev.time !== undefined && e.time - prev.time <= DOUBLE_CLICK_MS && Math.hypot(e.x - prev.x, e.y - prev.y) <= NODE_PICK_PX) {
+      this.finish();
+      return;
+    }
+    this.additive = this.additive || !!e.ctrl || !!e.shift;
+    this.points.push(this.editor.toDesign(e));
+    this.editor.setStatus('Click round the objects; Enter or double click selects');
+  }
+
+  override keyDown(e: KeyInput): boolean {
+    if (e.key === 'Enter') {
+      this.finish();
+      return true;
+    }
+    if (e.key === 'Escape' && this.points.length) {
+      this.cancel();
+      return true;
+    }
+    if (e.key === 'Backspace' && this.points.length) {
+      this.points.pop();
+      this.editor.changed('overlay');
+      return true;
+    }
+    return false;
+  }
+
+  private finish(): void {
+    const pts = this.points;
+    const add = this.additive;
+    this.cancel();
+    if (pts.length >= 3) this.editor.polygonSelect(pts, add);
+  }
+
+  override cancel(): void {
+    this.points = [];
+    this.last = null;
+    this.additive = false;
+    this.editor.changed('overlay');
+  }
+
+  override overlay(): ToolOverlay {
+    return { nodes: this.points.map(([x, y]) => pathNode(x, y)), cursor: this.editor.pointer ?? undefined };
+  }
+}
+
 // ---- reshape: drag nodes ----
 
 class ReshapeTool extends BaseTool {
   readonly name = 'reshape';
   private drag: { object: StitchObject; node: number; at: PointerInput; start: Point; dragging: boolean } | null = null;
-  /** The last node clicked: Space toggles its type, [ and ] change its width. */
+  /** The last node clicked: Space toggles its type, [ and ] change its width, Delete removes it. */
   active: { id: number; node: number } | null = null;
+  private lastClick: PointerInput | null = null;
 
   override pointerDown(e: PointerInput): void {
     const ed = this.editor;
     const p = ed.toDesign(e);
+    // Double click on a selected outline (not on a node): insert a node there.
+    const prev = this.lastClick;
+    this.lastClick = e;
+    const double = prev && e.time !== undefined && prev.time !== undefined && e.time - prev.time <= DOUBLE_CLICK_MS && Math.hypot(e.x - prev.x, e.y - prev.y) <= NODE_PICK_PX;
+    if (double) {
+      const target = ed.selectedObjects().find((o) => pickNode(o, p, ed.pxToMm(NODE_PICK_PX)) < 0 && ed.objectAt(e)?.id === o.id);
+      if (target && ed.insertNode(target.id, p)) {
+        this.lastClick = null;
+        return;
+      }
+    }
     for (const o of ed.selectedObjects()) {
       const node = pickNode(o, p, ed.pxToMm(NODE_PICK_PX));
       if (node >= 0 && !o.locked) {
@@ -382,12 +536,18 @@ class ReshapeTool extends BaseTool {
     const ed = this.editor;
     const a = this.active;
     const o = a ? ed.object(a.id) : undefined;
-    if (!a || !o) return false;
+    // Delete / Backspace edit nodes here; they never delete whole objects while reshaping.
+    const deleting = e.key === 'Delete' || e.key === 'Backspace';
+    if (!a || !o) return deleting;
     const onRail1 = a.node < o.points.length;
     const list = onRail1 ? o.points : o.rail2;
     const i = onRail1 ? a.node : a.node - o.points.length;
     const nd = list[i];
     if (!nd) return false;
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (ed.deleteNode(a.id, a.node)) this.active = null;
+      return true;
+    }
     let next: PathNode | null = null;
     if (e.key === ' ') next = { ...nd, type: nd.type === 'corner' ? 'curve' : 'corner' };
     else if (e.key === '[' || e.key === ']') {
@@ -590,6 +750,8 @@ export function createTool(name: ToolName, editor: Editor): Tool {
       return new DrawTool(editor);
     case 'shape':
       return new ShapeTool(editor);
+    case 'polygon':
+      return new PolygonTool(editor);
     case 'reshape':
       return new ReshapeTool(editor);
     case 'stitches':

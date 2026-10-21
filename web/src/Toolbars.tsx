@@ -175,14 +175,15 @@ export function Toolbars({ editor, serverOnline }: { editor: Editor; serverOnlin
       <div className="toolbar" data-testid="toolbar-tools">
         {B('file.importArtwork')}
         {B('file.importSvg')}
-        <Menu label="Arrange">
-          {B('arrange.align')}
+        <Menu label="Arrange" testId="menu-arrange">
+          {(['left', 'centre', 'right', 'top', 'middle', 'bottom'] as const).map((side) => B('arrange.align', `Align ${side} with the last selected`, side))}
           {B('arrange.weld')}
           {B('arrange.byColour')}
           {B('arrange.backColour')}
           {B('arrange.forwardColour')}
           {B('arrange.optimize')}
-          {B('arrange.spaceEvenly')}
+          {B('arrange.spaceEvenly', 'Space evenly across', 'x')}
+          {B('arrange.spaceEvenly', 'Space evenly down', 'y')}
           {B('arrange.bySelection')}
         </Menu>
         {B('edit.duplicate')}

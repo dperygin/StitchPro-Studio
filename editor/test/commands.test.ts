@@ -19,6 +19,7 @@ function three(clipboard?: Clipboard) {
   const doc = createDocument({ closestJoin: false });
   for (const y of [0, 10, 20]) doc.objects.push(createObject(doc, { points: [pathNode(0, y), pathNode(10, y)] }));
   const ed = new Editor(doc, { clipboard });
+  ed.showRulers = false; // these tests work near the origin, under where the rulers would be
   return { ed, ids: doc.objects.map((o) => o.id) };
 }
 const order = (ed: Editor) => ed.doc.objects.map((o) => o.id);
@@ -45,9 +46,9 @@ describe('the command registry', () => {
 
   it('runs ready commands and refuses the ones built later', () => {
     const { ed } = three();
-    expect(ed.isEnabled('tool.polygon')).toBe(false);
-    expect(ed.run('tool.polygon')).toBe(false);
-    expect(ed.keyDown({ key: 'u' })).toBe(false);
+    expect(ed.isEnabled('edit.splice')).toBe(false);
+    expect(ed.run('edit.splice')).toBe(false);
+    expect(ed.keyDown({ key: 'k', ctrl: true, shift: true })).toBe(false);
     expect(ed.run('tool.reshape')).toBe(true);
     expect(ed.toolName).toBe('reshape');
     expect(ed.isChecked('tool.reshape')).toBe(true);
@@ -233,6 +234,7 @@ describe('transforms', () => {
 describe('digitizing', () => {
   it('drags standard shapes, Ctrl keeping their proportions', () => {
     const ed = new Editor(createDocument({ closestJoin: false }));
+    ed.showRulers = false;
     ed.run('shape.circle');
     drag(ed, [0, 0], [20, 10]);
     const o = ed.doc.objects[0]!;
@@ -247,6 +249,7 @@ describe('digitizing', () => {
 
   it('digitizes two-rail satins rail by rail, and Columns with paired nodes', () => {
     const ed = new Editor(createDocument({ closestJoin: false }));
+    ed.showRulers = false;
     ed.run('draw.column');
     click(ed, 0, 0);
     click(ed, 20, 0);
@@ -264,6 +267,7 @@ describe('digitizing', () => {
 
   it('adds a hole to the selected closed shape', () => {
     const ed = new Editor(createDocument({ closestJoin: false }));
+    ed.showRulers = false;
     ed.run('shape.rectangle');
     drag(ed, [0, 0], [30, 30]);
     ed.run('edit.addHole');

@@ -107,3 +107,28 @@ export function transformObject(o: StitchObject, m: Affine): StitchObject {
 export function reversedObject(o: StitchObject): StitchObject {
   return { ...o, points: [...o.points].reverse(), rail2: [...o.rail2].reverse(), version: o.version + 1 };
 }
+
+// ---- copy tools ----
+
+/** Array: rows x cols offsets (dx, dy apart), the first being the original's place. */
+export function arrayOffsets(rows: number, cols: number, dx: number, dy: number): Affine[] {
+  const out: Affine[] = [];
+  for (let r = 0; r < Math.max(1, Math.floor(rows)); r++) for (let c = 0; c < Math.max(1, Math.floor(cols)); c++) out.push(translation(c * dx, r * dy));
+  return out;
+}
+
+/**
+ * Circle / kaleidoscope: n placements turned evenly round (cx, cy), the first being the
+ * original's. With reflect, every other copy is also mirrored across its radial line.
+ */
+export function circleTransforms(n: number, cx: number, cy: number, reflect = false): Affine[] {
+  const count = Math.max(1, Math.floor(n));
+  return Array.from({ length: count }, (_, k) => {
+    const turn = rotation((360 * k) / count, cx, cy);
+    if (!reflect || k % 2 === 0) return turn;
+    // A reflection across the radial line at angle 180 k / n lands the copy where turn k would,
+    // but mirrored, so neighbouring copies face each other.
+    const phi = (180 * k) / count;
+    return compose(rotation(phi, cx, cy), compose(mirror(cx, cy, true), rotation(-phi, cx, cy)));
+  });
+}
