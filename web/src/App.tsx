@@ -1,9 +1,9 @@
 // Layout, tabs, dialogs, global keys. The shell holds open designs (one Editor each, sharing
 // fonts and clipboard) and handles what only the browser can do: files, downloads, dialogs.
 
-import { useEffect, useMemo, useState } from 'react';
-import { Clipboard, Editor, FontLibrary, formatLength, keyInput, type HostAction } from '@stitchpro/editor';
-import { createDocument } from '@stitchpro/engine';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { Clipboard, Editor, FontEditorSession, FontLibrary, formatLength, keyInput, type HostAction } from '@stitchpro/editor';
+import { createDocument, createNativeFont } from '@stitchpro/engine';
 import { useEditorState } from './useEditor';
 import { Toolbars } from './Toolbars';
 import { CanvasView } from './CanvasView';
@@ -18,6 +18,9 @@ import { Settings } from './Settings';
 import { ToolDialog } from './Dialogs';
 import { download, openDesigns, saveDesign } from './saveFile';
 import { decodeArtwork } from './artwork';
+import { TextDialog } from './TextDialog';
+import { FontEditorPanel, LetterGrid } from './FontEditorPanel';
+import { loadBundledFonts } from './fonts';
 
 type ServerState = 'checking' | 'online' | 'offline';
 
@@ -32,9 +35,20 @@ export function App() {
   const [server, setServer] = useState<ServerState>('checking');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dialog, setDialog] = useState<string | null>(null);
+  const [textDialog, setTextDialog] = useState<{ textId: number | null } | null>(null);
   const active = tabs.find((t) => t.id === activeId) ?? tabs[0]!;
-  const editor = active.editor;
+  const session = active.session ?? null;
+  // A font tab shows the editor of the letter being edited (a new one per letter).
+  useSyncExternalStore(
+    (cb) => (session ? session.subscribe(cb) : () => {}),
+    () => (session ? `${session.char}` : ''),
+  );
+  const editor = session ? session.editor : active.editor;
   useEditorState(editor);
+
+  useEffect(() => {
+    void loadBundledFonts(fonts);
+  }, [fonts]);
 
   useEffect(() => {
     fetch('/api/health')
@@ -71,6 +85,13 @@ export function App() {
         setSettingsOpen(true);
       } else if (action === 'dialog' && typeof arg === 'string') {
         setDialog(arg);
+      } else if (action === 'text') {
+        setTextDialog({ textId: typeof arg === 'number' ? arg : null });
+      } else if (action === 'fontEditor') {
+        const s = new FontEditorSession(createNativeFont('My font'), { fonts, clipboard });
+        const t: Tab = { id: ++tabCounter, editor: s.editor, name: 'Font: My font', file: null, session: s };
+        setTabs((ts) => [...ts, t]);
+        setActiveId(t.id);
       }
     } catch (e) {
       editor.setStatus((e as Error).message);
@@ -131,16 +152,18 @@ export function App() {
       <Toolbars editor={editor} serverOnline={server === 'online'} />
       <div className="app-main">
         <aside className="left-panel">
+          {session && <LetterGrid session={session} />}
           <ObjectList editor={editor} />
-          <ArtworkPanel editor={editor} />
+          {!session && <ArtworkPanel editor={editor} />}
         </aside>
         <section className="centre">
           <DesignTabs tabs={tabs} activeId={active.id} onSelect={setActiveId} onClose={closeTab} />
           <Scrollbars editor={editor}>
-            <CanvasView key={active.id} editor={editor} />
+            <CanvasView key={session ? `${active.id}-${session.char}` : active.id} editor={editor} />
           </Scrollbars>
         </section>
         <aside className="right-panel">
+          {session && <FontEditorPanel session={session} fonts={fonts} />}
           <PropertiesPanel editor={editor} />
           {editor.stitchListOpen && <StitchList editor={editor} />}
         </aside>
@@ -161,6 +184,7 @@ export function App() {
       </footer>
       {settingsOpen && <Settings editor={editor} onClose={() => setSettingsOpen(false)} />}
       {dialog && <ToolDialog key={dialog} editor={editor} id={dialog} onClose={() => setDialog(null)} />}
+      {textDialog && <TextDialog editor={editor} textId={textDialog.textId} onClose={() => setTextDialog(null)} />}
     </div>
   );
 }

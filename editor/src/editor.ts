@@ -4,8 +4,15 @@
 import {
   StitchCache,
   applyClosestJoin,
+  DEFAULT_LETTER,
   POOR_MATCH_DELTA_E,
+  allocateId,
   arrayOffsets,
+  buildText,
+  layoutText,
+  letterMeta,
+  type LetterAdjust,
+  type TextSpec,
   circleTransforms,
   fitsHoop,
   nearestThread,
@@ -80,7 +87,7 @@ export type ChangeKind = 'base' | 'live' | 'overlay' | 'state';
 export type ChangeListener = (kind: ChangeKind) => void;
 
 /** Things only the host app can do (file pickers, downloads, dialogs). */
-export type HostAction = 'new' | 'open' | 'save' | 'saveAs' | 'export' | 'settings' | 'dialog';
+export type HostAction = 'new' | 'open' | 'save' | 'saveAs' | 'export' | 'settings' | 'dialog' | 'text' | 'fontEditor';
 export type ActionListener = (action: HostAction, arg?: unknown) => void;
 
 /** Copied objects, shared between the tabs of one app. */
@@ -1187,6 +1194,109 @@ export class Editor {
     this.replace(onRail1 ? { ...o, points: next } : { ...o, rail2: next });
     this.commit('Delete node');
     return true;
+  }
+
+  // ---- lettering ----
+
+  /** The text a piece belongs to (its textId), or null. */
+  textIdOf(o: StitchObject | undefined): number | null {
+    return o ? (letterMeta(o)?.textId ?? null) : null;
+  }
+
+  /** The text of the selection (the first selected lettering piece). */
+  selectedTextId(): number | null {
+    for (const o of this.selectedObjects()) {
+      const id = this.textIdOf(o);
+      if (id !== null) return id;
+    }
+    return null;
+  }
+
+  textPieces(textId: number): StitchObject[] {
+    return this.doc.objects.filter((o) => this.textIdOf(o) === textId);
+  }
+
+  textSpec(textId: number): TextSpec | null {
+    const o = this.textPieces(textId)[0];
+    return o ? structuredClone(letterMeta(o)!.spec) : null;
+  }
+
+  /** Lays out and plans a text, giving each piece a fresh id; the pieces are grouped. */
+  private buildTextObjects(spec: TextSpec, textId: number): StitchObject[] {
+    const font = this.fonts.get(spec.font);
+    if (!font) throw new Error(`The font "${spec.font}" is not loaded`);
+    const opts = { trimThreshold: this.doc.trimThreshold, joinDistance: this.doc.joinDistance };
+    return buildText(spec, font, textId, opts).map((p) => createObject(this.doc, { ...p, groupId: textId }));
+  }
+
+  /** Adds lettering (one undo step); returns its textId. */
+  addText(spec: TextSpec): number {
+    const textId = allocateId(this.doc);
+    this.nextGroupId = Math.max(this.nextGroupId, textId + 1);
+    const objs = this.buildTextObjects(spec, textId);
+    for (const o of objs) this.addObject(o);
+    this.setSelection(objs.map((o) => o.id));
+    this.commit('Add text');
+    this.setStatus(`Added "${spec.text}" (${objs.length} piece${objs.length === 1 ? '' : 's'})`);
+    return textId;
+  }
+
+  /**
+   * Rebuilds a text from a new spec in the same place in the sewing order. If the pieces were
+   * moved since they were built, the text keeps that move.
+   */
+  editText(textId: number, spec: TextSpec, label = 'Edit text'): void {
+    const old = this.textPieces(textId);
+    if (!old.length) return;
+    const oldSpec = letterMeta(old[0]!)!.spec;
+    const next = structuredClone(spec);
+    if (oldSpec.baseline !== 'custom') {
+      const font = this.fonts.get(oldSpec.font);
+      if (font) {
+        const was = layoutText(oldSpec, font, textId).pieces.flatMap((p) => (p.points ?? []).map((n): Point => [n.x, n.y]));
+        const now = old.flatMap((o) => o.points.map((n): Point => [n.x, n.y]));
+        if (was.length && now.length) {
+          const centre = (pts: Point[]) => {
+            const xs = pts.map((p) => p[0]);
+            const ys = pts.map((p) => p[1]);
+            return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+          };
+          const [ax, ay] = centre(was);
+          const [bx, by] = centre(now);
+          if (oldSpec.position[0] === spec.position[0] && oldSpec.position[1] === spec.position[1]) {
+            next.position = [spec.position[0] + bx! - ax!, spec.position[1] + by! - ay!];
+          }
+        }
+      }
+    }
+    const at = this.doc.objects.indexOf(old[0]!);
+    const objs = this.buildTextObjects(next, textId);
+    this.removeObjects(old.map((o) => o.id));
+    this.doc.objects.splice(Math.min(at, this.doc.objects.length), 0, ...objs);
+    for (const o of objs) this.noteVersion(o);
+    this.setSelection(objs.map((o) => o.id));
+    this.commit(label);
+  }
+
+  /** Letters mode: the letter being adjusted. */
+  activeLetter: { textId: number; letter: number } | null = null;
+
+  /** Changes one letter's adjustment (Letters mode); the others never move. */
+  adjustLetter(textId: number, letter: number, change: (a: LetterAdjust) => LetterAdjust | null): void {
+    const spec = this.textSpec(textId);
+    if (!spec) return;
+    const current = { ...DEFAULT_LETTER, ...(spec.letters[letter] ?? {}) };
+    const next = change(current);
+    if (next) spec.letters[letter] = next;
+    else delete spec.letters[letter];
+    this.editText(textId, spec, 'Adjust letter');
+    this.activeLetter = { textId, letter };
+  }
+
+  /** Number of letters in a text (spaces and line breaks not counted). */
+  letterCount(textId: number): number {
+    const spec = this.textSpec(textId);
+    return spec ? [...spec.text].filter((c) => c !== ' ' && c !== '\n' && c !== '\r').length : 0;
   }
 
   // ---- properties ----

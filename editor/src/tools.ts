@@ -4,7 +4,7 @@ import { formatLength } from './units';
 import { DOUBLE_CLICK_MS, DRAG_THRESHOLD_PX, NODE_PICK_PX, NODE_WIDTH_STEP_MM, OBJECT_PICK_PX, RULER_PX } from './constants';
 import { handleAt, handleTransform, type HandleKind } from './handles';
 import { objectsInBox, pickNode, type Box } from './hittest';
-import { naturalAspect, pathNode, standardShape, transformObject, translateObject, type PathNode, type Point, type StitchObject } from '@stitchpro/engine';
+import { naturalAspect, pathNode, standardShape, transformObject, translateObject, type LetterAdjust, type PathNode, type Point, type StitchObject } from '@stitchpro/engine';
 import type { Editor, KeyInput, PointerInput } from './editor';
 
 export type ToolName = 'select' | 'draw' | 'shape' | 'polygon' | 'reshape' | 'stitches' | 'pick' | 'angle' | 'measure' | 'letters';
@@ -746,10 +746,86 @@ class MeasureTool extends BaseTool {
   }
 }
 
-// ---- letters (prompt 20) ----
+// ---- letters: adjust single letters of a text ----
+
+/** Letters mode steps (Shift x 10 for moves). */
+const LETTER_MOVE_MM = 0.5;
+const LETTER_SCALE = 0.05;
+const LETTER_TURN_DEG = 5;
 
 class LettersTool extends BaseTool {
   readonly name = 'letters';
+
+  constructor(editor: Editor) {
+    super(editor);
+    // Start on the first letter of the selected text.
+    const id = editor.selectedTextId();
+    if (id !== null && editor.activeLetter?.textId !== id) editor.activeLetter = { textId: id, letter: 0 };
+    editor.setStatus('Letters: A/D, W/S move · Z/X size · Q/E turn · C/V slant · R reset letter · B reset all · Tab next letter · Esc done');
+  }
+
+  override pointerDown(e: PointerInput): void {
+    const ed = this.editor;
+    const hit = ed.objectAt(e);
+    const meta = hit ? (hit.textMeta as unknown as { textId?: number; letter?: number } | null) : null;
+    if (meta && typeof meta.textId === 'number' && typeof meta.letter === 'number') {
+      ed.activeLetter = { textId: meta.textId, letter: meta.letter };
+      ed.setSelection(ed.textPieces(meta.textId).map((o) => o.id));
+    }
+  }
+
+  override keyDown(e: KeyInput): boolean {
+    const ed = this.editor;
+    const a = ed.activeLetter;
+    if (!a || e.ctrl) return false;
+    const k = e.key.toLowerCase();
+    const move = LETTER_MOVE_MM * (e.shift ? 10 : 1);
+    const changes: Record<string, (l: LetterAdjust) => LetterAdjust | null> = {
+      a: (l) => ({ ...l, dx: l.dx - move }),
+      d: (l) => ({ ...l, dx: l.dx + move }),
+      w: (l) => ({ ...l, dy: l.dy - move }),
+      s: (l) => ({ ...l, dy: l.dy + move }),
+      z: (l) => ({ ...l, scale: Math.max(0.1, l.scale - LETTER_SCALE) }),
+      x: (l) => ({ ...l, scale: l.scale + LETTER_SCALE }),
+      q: (l) => ({ ...l, rotate: l.rotate - LETTER_TURN_DEG }),
+      e: (l) => ({ ...l, rotate: l.rotate + LETTER_TURN_DEG }),
+      c: (l) => ({ ...l, slant: l.slant - LETTER_TURN_DEG }),
+      v: (l) => ({ ...l, slant: l.slant + LETTER_TURN_DEG }),
+      r: () => null,
+    };
+    if (changes[k]) {
+      ed.adjustLetter(a.textId, a.letter, changes[k]!);
+      return true;
+    }
+    if (k === 'b') {
+      const spec = ed.textSpec(a.textId);
+      if (spec) {
+        spec.letters = {};
+        ed.editText(a.textId, spec, 'Reset letters');
+      }
+      return true;
+    }
+    if (e.key === 'Tab') {
+      const n = ed.letterCount(a.textId);
+      if (n) ed.activeLetter = { textId: a.textId, letter: (a.letter + (e.shift ? n - 1 : 1)) % n };
+      ed.changed('overlay');
+      return true;
+    }
+    if (e.key === 'Escape') {
+      ed.setTool('select');
+      return true;
+    }
+    return false;
+  }
+
+  override overlay(): ToolOverlay {
+    const ed = this.editor;
+    const a = ed.activeLetter;
+    if (!a) return {};
+    const pieces = ed.textPieces(a.textId).filter((o) => (o.textMeta as unknown as { letter?: number } | null)?.letter === a.letter);
+    const box = ed.selectionBox(pieces);
+    return box ? { box } : {};
+  }
 }
 
 export function createTool(name: ToolName, editor: Editor): Tool {

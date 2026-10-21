@@ -452,3 +452,13 @@ describe('renderer', () => {
     expect(r.stats.baseDraws).toBe(base + 3);
   });
 });
+
+describe('jump marks', () => {
+  it('moves (not stitches) to a landing point written three times', async () => {
+    const { isJumpLanding } = await import('../src/index');
+    const pts: [number, number][] = [[0, 0], [1, 0], [9, 9], [9, 9], [9, 9], [10, 9]];
+    expect(pts.map((_, i) => isJumpLanding(pts, i))).toEqual([false, false, true, false, false, false]);
+    const twice: [number, number][] = [[0, 0], [5, 5], [5, 5], [6, 5]];
+    expect(twice.map((_, i) => isJumpLanding(twice, i))).toEqual([false, false, false, false]);
+  });
+});

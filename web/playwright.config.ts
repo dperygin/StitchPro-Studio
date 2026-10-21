@@ -12,6 +12,8 @@ export default defineConfig({
     {
       command: 'node ../server/run.mjs --port 8001',
       url: 'http://127.0.0.1:8001/api/health',
+      // Fonts saved by tests go here, never into the real fonts_spf/.
+      env: { STITCHPRO_FONTS_DIR: 'test-results/fonts_spf' },
       reuseExistingServer: false,
       timeout: 180_000,
     },

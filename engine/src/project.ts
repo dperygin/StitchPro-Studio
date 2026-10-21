@@ -23,7 +23,7 @@ export class ProjectError extends Error {
   override name = 'ProjectError';
 }
 
-type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type JsonObject = { [key: string]: Json };
 
 // ---- settings key mapping ----
@@ -54,7 +54,8 @@ function settingsOut(s: StitchSettings): Json {
   return out;
 }
 
-function objectOut(o: StitchObject): Json {
+/** One object as JSON (snake_case keys, as in .sps files and .spf glyphs). */
+export function objectToJson(o: StitchObject): Json {
   return {
     id: o.id,
     name: o.name,
@@ -118,7 +119,7 @@ export function saveProject(doc: StitchDocument): string {
     trim_jumps: doc.trimJumps,
     motifs: doc.motifs.map((m) => ({ name: m.name, points: m.points.map(pointOut) })),
     artwork: doc.artwork.map(artworkOut),
-    objects: doc.objects.map(objectOut),
+    objects: doc.objects.map(objectToJson),
   };
   return JSON.stringify(out, null, 2) + '\n';
 }
@@ -216,6 +217,41 @@ function assignIds<T extends { id: number }>(items: T[], rawIds: unknown[], next
   });
 }
 
+/**
+ * One object from its JSON (as in .sps files and .spf glyphs). Tolerant like loadProject; `where`
+ * names the object in error messages. The id is 0: callers assign ids.
+ */
+export function objectFromJson(raw: unknown, where = 'Object'): StitchObject {
+  const o: JsonObject = isObj(raw) ? raw : {};
+  const label = `${where}${typeof o.name === 'string' ? ` ("${o.name}")` : ''}`;
+  const fillStart = pointIn(o.fill_start);
+  const fillEnd = pointIn(o.fill_end);
+  const textMeta = isObj(o.text_meta) ? (o.text_meta as TextMeta) : null;
+  return {
+    id: 0,
+    name: str(o.name, ''),
+    points: nodesIn(o.points, label),
+    settings: settingsIn(o.settings, label),
+    color: colorIn(o.color_rgb, [0, 0, 0]),
+    closed: bool(o.closed, false),
+    visible: bool(o.visible, true),
+    holes: arr(o.holes).map((h) => nodesIn(h, `${label} hole`)),
+    fillStart,
+    fillEnd,
+    autoEntry: bool(o.auto_entry, !(fillStart || fillEnd)),
+    locked: bool(o.locked, false),
+    groupId: Number.isInteger(o.group_id) ? (o.group_id as number) : null,
+    customStitches: Array.isArray(o.custom_stitches) ? pointsIn(o.custom_stitches) : null,
+    rail2: nodesIn(o.rail2, `${label} rail2`),
+    stopAfter: bool(o.stop_after, false),
+    hoopOut: pointIn(o.hoop_out),
+    textMeta,
+    stitchAngles: stitchAnglesIn(o.stitch_angles),
+    thread: threadIn(o.thread),
+    version: 1,
+  };
+}
+
 /** Parses .sps text into a document. Throws ProjectError with a readable message. */
 export function loadProject(text: string): StitchDocument {
   let data: unknown;
@@ -229,35 +265,7 @@ export function loadProject(text: string): StitchDocument {
   const def = createDocument();
 
   const rawObjects = arr(data.objects).filter(isObj);
-  const objects: StitchObject[] = rawObjects.map((o, i) => {
-    const label = `Object ${i + 1}${typeof o.name === 'string' ? ` ("${o.name}")` : ''}`;
-    const fillStart = pointIn(o.fill_start);
-    const fillEnd = pointIn(o.fill_end);
-    const textMeta = isObj(o.text_meta) ? (o.text_meta as TextMeta) : null;
-    return {
-      id: 0,
-      name: str(o.name, ''),
-      points: nodesIn(o.points, label),
-      settings: settingsIn(o.settings, label),
-      color: colorIn(o.color_rgb, [0, 0, 0]),
-      closed: bool(o.closed, false),
-      visible: bool(o.visible, true),
-      holes: arr(o.holes).map((h) => nodesIn(h, `${label} hole`)),
-      fillStart,
-      fillEnd,
-      autoEntry: bool(o.auto_entry, !(fillStart || fillEnd)),
-      locked: bool(o.locked, false),
-      groupId: Number.isInteger(o.group_id) ? (o.group_id as number) : null,
-      customStitches: Array.isArray(o.custom_stitches) ? pointsIn(o.custom_stitches) : null,
-      rail2: nodesIn(o.rail2, `${label} rail2`),
-      stopAfter: bool(o.stop_after, false),
-      hoopOut: pointIn(o.hoop_out),
-      textMeta,
-      stitchAngles: stitchAnglesIn(o.stitch_angles),
-      thread: threadIn(o.thread),
-      version: 1,
-    };
-  });
+  const objects: StitchObject[] = rawObjects.map((o, i) => objectFromJson(o, `Object ${i + 1}`));
 
   const rawArtwork = arr(data.artwork).filter(
     (a): a is JsonObject => isObj(a) && typeof a.src === 'string' && IMAGE_DATA_URL.test(a.src),

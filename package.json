@@ -13,9 +13,13 @@
     "build": "npm run build --workspaces --if-present",
     "e2e": "npm run e2e -w @stitchpro/web",
     "test": "npm run test --workspaces --if-present && node server/run.mjs test",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "fonts:draft": "tsx scripts/draft-fonts.ts"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
   }
 }

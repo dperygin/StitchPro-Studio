@@ -69,6 +69,17 @@ export const MARK_COLOURS: Readonly<Record<MarkKind, string>> = {
   travel: '#80868b',
 };
 
+/** True when stitch i is the first of a jump mark (its landing point repeated JUMP_MARK times). */
+export function isJumpLanding(pts: readonly (readonly [number, number])[], i: number): boolean {
+  const p = pts[i]!;
+  if (i > 0 && pts[i - 1]![0] === p[0] && pts[i - 1]![1] === p[1]) return false;
+  for (let k = 1; k < JUMP_MARK; k++) {
+    const q = pts[i + k];
+    if (!q || q[0] !== p[0] || q[1] !== p[1]) return false;
+  }
+  return true;
+}
+
 export class Renderer {
   theme: Theme = LIGHT;
 
@@ -122,13 +133,9 @@ export class Renderer {
     if (hit && hit.version === o.version) return hit.path;
     const path = this.createPath();
     const pts = this.editor.stitches(o);
-    let jump = 0;
     pts.forEach((p, i) => {
-      // A jump mark (the landing point repeated) is drawn as a move, not a stitch.
-      const repeat = i > 0 && p[0] === pts[i - 1]![0] && p[1] === pts[i - 1]![1];
-      jump = repeat ? jump + 1 : 0;
-      if (i === 0) path.moveTo(p[0], p[1]);
-      else if (jump === JUMP_MARK - 1) path.moveTo(p[0], p[1]);
+      // A jump mark (the landing point written JUMP_MARK times) is a move, not a stitch.
+      if (i === 0 || isJumpLanding(pts, i)) path.moveTo(p[0], p[1]);
       else path.lineTo(p[0], p[1]);
     });
     this.paths.set(o.id, { version: o.version, path });

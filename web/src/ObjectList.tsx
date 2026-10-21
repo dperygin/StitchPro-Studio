@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { sameColor, type Point, type StitchObject } from '@stitchpro/engine';
-import type { Editor } from '@stitchpro/editor';
+import { isJumpLanding, type Editor } from '@stitchpro/editor';
 import { CommandButton } from './Toolbars';
 import { useEditorState } from './useEditor';
 
@@ -35,7 +35,7 @@ export function Thumb({ editor, object, size = 28 }: { editor: Editor; object: S
     ctx.strokeStyle = css(object.color);
     ctx.lineWidth = 1;
     ctx.beginPath();
-    pts.forEach(([x, y], i) => (i ? ctx.lineTo(ox + (x - minX) * k, oy + (y - minY) * k) : ctx.moveTo(ox + (x - minX) * k, oy + (y - minY) * k)));
+    pts.forEach(([x, y], i) => (i && !isJumpLanding(pts, i) ? ctx.lineTo(ox + (x - minX) * k, oy + (y - minY) * k) : ctx.moveTo(ox + (x - minX) * k, oy + (y - minY) * k)));
     ctx.stroke();
   }, [editor, object, object.version, size]);
   return <canvas ref={ref} width={size} height={size} className="thumb" aria-hidden />;
