@@ -671,3 +671,31 @@ export function lineIntersection(a1: Point, a2: Point, b1: Point, b2: Point): { 
   const u = ((b1[0] - a1[0]) * dy - (b1[1] - a1[1]) * dx) / den;
   return { point: [a1[0] + dx * t, a1[1] + dy * t], t, u };
 }
+
+/** Nearest point of a polyline to p, with its arc length along the line. */
+export function projectOntoPolyline(line: readonly Point[], p: Point): { d: number; point: Point; dist: number } {
+  let best = { d: 0, point: line[0] ? ([line[0][0], line[0][1]] as Point) : ([p[0], p[1]] as Point), dist: Infinity };
+  let run = 0;
+  for (let i = 1; i < line.length; i++) {
+    const a = line[i - 1]!;
+    const b = line[i]!;
+    const c = closestOnSegment(p, a, b);
+    const len = distance(a, b);
+    const dd = distance(p, c.point);
+    if (dd < best.dist) best = { d: run + c.t * len, point: c.point, dist: dd };
+    run += len;
+  }
+  return best;
+}
+
+/** The part of a polyline between arc lengths d0 and d1 (reversed when d1 < d0), ends included. */
+export function subPolyline(line: readonly Point[], d0: number, d1: number): Point[] {
+  if (line.length === 0) return [];
+  const cum = cumulativeLengths(line);
+  const lo = Math.min(d0, d1);
+  const hi = Math.max(d0, d1);
+  const out: Point[] = [pointAt(line, lo, cum)];
+  for (let i = 0; i < line.length; i++) if (cum[i]! > lo + EPS && cum[i]! < hi - EPS) out.push([line[i]![0], line[i]![1]]);
+  out.push(pointAt(line, hi, cum));
+  return d1 < d0 ? out.reverse() : out;
+}

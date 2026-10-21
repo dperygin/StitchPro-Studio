@@ -9,6 +9,7 @@ import {
   distance,
   fillWithAngles,
   fromLocal,
+  generateTopStitching,
   pathNode,
   pointInRegion,
   polygonFromRings,
@@ -131,7 +132,7 @@ describe('turning tatami', () => {
     expect(fillWithAngles(square, crossing, params({ fillAngle: 30 }))).toEqual(tatamiLayer(square, { ...params({ fillAngle: 30 }) }));
   });
 
-  it('sews fill objects with stitch angle lines through computeStitches', () => {
+  it('sews fill objects with stitch angle lines', () => {
     const doc = createDocument();
     const o = createObject(doc, {
       stitchType: 'fill',
@@ -142,7 +143,7 @@ describe('turning tatami', () => {
         [[20, 0], [32, 12]],
       ],
     });
-    const pts = computeStitches(o);
-    expect(pts).toEqual(turningTatami(square, o.stitchAngles, params()));
+    expect(generateTopStitching(o, [])).toEqual(turningTatami(square, o.stitchAngles, params()));
+    expect(computeStitches(o).length).toBeGreaterThan(generateTopStitching(o, []).length); // plus underlay
   });
 });

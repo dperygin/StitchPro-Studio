@@ -5,6 +5,7 @@ import {
   chaikin,
   computeStitches,
   contourFill,
+  generateTopStitching,
   createDocument,
   createObject,
   crossStitchFill,
@@ -42,7 +43,7 @@ const objectOf = (stitchType: StitchType, ring: Point[], o: Partial<StitchSettin
 
 describe('satin fill', () => {
   it('sews only row ends at the satin density, splitting long stitches', () => {
-    const pts = computeStitches(objectOf('satin_fill', rect(0, 0, 10, 10)));
+    const pts = generateTopStitching(objectOf('satin_fill', rect(0, 0, 10, 10)), []);
     const rows = new Set(pts.map((p) => p[1].toFixed(4)));
     expect(rows.size).toBe(50); // 0.4 forward density halved
     for (let i = 1; i < pts.length; i++) expect(distance(pts[i - 1]!, pts[i]!)).toBeLessThanOrEqual(7 + 1e-9);

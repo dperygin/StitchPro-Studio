@@ -2,7 +2,7 @@
 
 import type { Motif, PathNode, Point, RGB, StitchSettings, StitchType } from './types';
 import { STITCH_TYPE_LABELS, defaultSettings } from './types';
-import { generateTopStitching, generateUnderlay } from './generate';
+import { sewObject } from './generate';
 
 export interface ThreadRef {
   chart: string;
@@ -221,10 +221,10 @@ export function syncPalette(palette: PaletteSlot[], objects: readonly StitchObje
 /** Shared empty motif list, so calls without motifs hit the cache (it compares by reference). */
 export const NO_MOTIFS: readonly Motif[] = Object.freeze([]);
 
-/** Hand edits if any, else underlay followed by top stitching. */
+/** Hand edits if any, else underlay followed by top stitching (see sewObject). */
 export function computeStitches(o: StitchObject, motifs: readonly Motif[] = NO_MOTIFS): Point[] {
   if (o.customStitches) return o.customStitches;
-  return [...generateUnderlay(o, motifs), ...generateTopStitching(o, motifs)];
+  return sewObject(o, motifs);
 }
 
 interface CacheEntry {

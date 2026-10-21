@@ -51,6 +51,8 @@ export interface ColumnOptions {
   widthScale?: number;
   /** Raised satin layers: multiplies the spacing. */
   spacingScale?: number;
+  /** Closed columns: start at the vertex nearest this point instead of moving the seam. */
+  startAt?: Point | null;
 }
 
 const EPS = 1e-9;
@@ -217,6 +219,33 @@ function rotateRing(line: ColumnLine, v: number): ColumnLine {
   return { pts: rot(line.pts), widths: rot(line.widths), corner: rot(line.corner) };
 }
 
+/** Rotates a closed line to start at its point nearest p (inserted between vertices if needed). */
+function startRingAt(line: ColumnLine, p: Point): ColumnLine {
+  const { pts, widths, corner } = line;
+  let best = { i: 0, t: 0, d: Infinity, q: pts[0]! };
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!;
+    const b = pts[i]!;
+    const v = sub(b, a);
+    const len2 = dot(v, v);
+    const t = len2 > 0 ? Math.min(1, Math.max(0, dot(sub(p, a), v) / len2)) : 0;
+    const q = add(a, v, t);
+    const d = distance(p, q);
+    if (d < best.d - EPS) best = { i: i - 1, t, d, q };
+  }
+  if (best.t <= EPS) return rotateRing(line, best.i);
+  if (best.t >= 1 - EPS) return rotateRing(line, (best.i + 1) % (pts.length - 1));
+  // Insert the point after vertex best.i, then rotate to it.
+  const w = widths[best.i]! + (widths[best.i + 1]! - widths[best.i]!) * best.t;
+  const k = best.i + 1;
+  const inserted: ColumnLine = {
+    pts: [...pts.slice(0, k), best.q, ...pts.slice(k)],
+    widths: [...widths.slice(0, k), w, ...widths.slice(k)],
+    corner: [...corner.slice(0, k), false, ...corner.slice(k)],
+  };
+  return rotateRing(inserted, k);
+}
+
 /** Moves the seam of a closed line as far as possible from its corners (and hidden bends). */
 function moveSeam(line: ColumnLine, s: StitchSettings, cornerIdx: number[]): ColumnLine {
   const cum = cumulativeLengths(line.pts);
@@ -342,7 +371,8 @@ export function columnRungs(
   if (closed) cornerFlags[m.points.length - 1] = cornerFlags[0]!;
   let line: ColumnLine = { pts: m.points, widths: m.widths.map((w) => w * widthScale), corner: cornerFlags };
 
-  if (closed) line = moveSeam(line, s, legCorners(line, s, true));
+  if (closed && opts.startAt) line = startRingAt(line, opts.startAt);
+  else if (closed) line = moveSeam(line, s, legCorners(line, s, true));
   if (s.cornerMode !== 'none') line = sharpenBends(line, cornerThreshold(s));
 
   const cum = cumulativeLengths(line.pts);
@@ -851,4 +881,47 @@ export function railUnderlay(col: RailColumn, s: StitchSettings, kind: RailUnder
   const forward = zigzag(zz, 0, 1);
   if (kind === 'zigzag') return [...forward, ...back.map(middle)];
   return [...forward, ...zigzag([...zz].reverse(), zz.length % 2, -1)];
+}
+
+/**
+ * A satin centreline as two rails (its left and right edges, without pull compensation), for
+ * underlay and for what the column covers.
+ */
+export function columnFromCentreline(nodes: readonly PathNode[], closed: boolean, s: StitchSettings): RailColumn | null {
+  const m = materializeDetailed(nodes, closed, s.satinWidth, 0.4);
+  const n = m.points.length;
+  if (n < 2) return null;
+  const left: Point[] = [];
+  const right: Point[] = [];
+  // Edge points are mitred: along the bisector of the neighbouring segments' normals,
+  // scaled so both edges stay half a width from each segment (capped at 4x on sharp turns).
+  m.points.forEach((c, i) => {
+    const prev = i > 0 ? m.points[i - 1]! : closed ? m.points[n - 2]! : null;
+    const next = i < n - 1 ? m.points[i + 1]! : closed ? m.points[1]! : null;
+    const nIn = prev ? norm(sub(c, prev)) : null;
+    const nOut = next ? norm(sub(next, c)) : null;
+    const n1 = leftOf(nIn ?? nOut ?? [1, 0]);
+    const n2 = leftOf(nOut ?? nIn ?? [1, 0]);
+    const bis = norm(add(n1, n2)) ?? n1;
+    const scale = Math.min(4, 1 / Math.max(0.25, dot(bis, n1)));
+    const h = (m.widths[i]! / 2) * scale;
+    left.push(add(c, bis, h));
+    right.push(add(c, bis, -h));
+  });
+  const cum1 = cumulativeLengths(left);
+  const cum2 = cumulativeLengths(right);
+  const L1 = cum1[n - 1]!;
+  const L2 = cum2[n - 1]!;
+  const len = Math.max(L1, L2);
+  if (len <= EPS) return null;
+  return { r1: left, r2: right, cum1, cum2, pieces: [{ a0: 0, a1: L1, b0: 0, b1: L2, len, u0: 0 }], length: len, piecewise: false };
+}
+
+/** Average width of a rail column (sampled every 1 mm along it). */
+export function averageColumnWidth(col: RailColumn): number {
+  const us = arcPositions(col.length, 1);
+  return us.reduce((sum, u) => {
+    const r = railRungAt(col, u);
+    return sum + distance(r.a, r.b);
+  }, 0) / us.length;
 }

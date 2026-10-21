@@ -8,7 +8,7 @@
 
 import { mulberry32 } from './columns';
 import { bufferRegion, offsetOutlines, pointInRegion, regionRings, type Polygon, type Region, type Ring } from './geometry';
-import { closestOnSegment, cumulativeLengths, distance, floorMod, pointAt, resampleKeepingCorners } from './path';
+import { closestOnSegment, cumulativeLengths, distance, floorMod, pointAt, resampleKeepingCorners, restartRing } from './path';
 import { runningStitch } from './stitchlib';
 import { JUMP_MARK, type FillPattern, type Point, type StitchSettings } from './types';
 
@@ -449,8 +449,8 @@ function travelOnEdge(a: Point, b: Point, ctx: TravelContext): Point[] | null {
   return candidates.find((path) => onSewnLength(path, ctx.sewn) <= ctx.limit) ?? null;
 }
 
-/** Stitches along a travel path (excluding its first point). */
-function travelStitches(path: readonly Point[]): Point[] {
+/** Stitches along a travel path (excluding its first point), 2.5 mm long. */
+export function travelStitches(path: readonly Point[]): Point[] {
   return resampleKeepingCorners(path, TRAVEL_STITCH, { angleBelowDeg: 170 }).slice(1);
 }
 
@@ -781,13 +781,21 @@ export function fillZigzagUnderlay(region: Region, s: StitchSettings, double = f
   return out.map(fromFrame);
 }
 
-/** Fill edge run: running stitch round the outline and holes, inset by the underlay inset. */
-export function fillEdgeRun(region: Region, s: StitchSettings, layer: 1 | 2 = 1): Point[] {
+/** Fill edge run: running stitch round the outline and holes, inset by the underlay inset, keeping corners. */
+export function fillEdgeRun(region: Region, s: StitchSettings, layer: 1 | 2 = 1, start: Point | null = null): Point[] {
   const u = fillUnderlayParams(s, layer);
   const rings = offsetOutlines(region, -u.inset);
   const out: Point[] = [];
-  for (const ring of rings) {
-    const run = runningStitch(ring, { stitchLength: u.stitchLength, runStyle: 'single', stemWidth: 0 });
+  // Nearest ring first, each started at its point nearest where the last left off.
+  while (rings.length) {
+    const from = out.length ? out[out.length - 1]! : start;
+    let k = 0;
+    if (from) rings.forEach((r, i) => {
+      if (projectOnRing(ringPath(r), from).dist < projectOnRing(ringPath(rings[k]!), from).dist) k = i;
+    });
+    const ring = rings.splice(k, 1)[0]!;
+    // A needle point on every corner, so the run never cuts across one (and out of the shape).
+    const run = resampleKeepingCorners(from ? restartRing(ring, from) : ring, u.stitchLength, { closed: true });
     if (out.length && run.length) out.push(...travelStitches(travelInside(out[out.length - 1]!, run[0]!, region)).slice(0, -1));
     out.push(...run);
   }
@@ -877,4 +885,19 @@ export function laydown(region: Region, s: StitchSettings, entry: Point | null =
   if (!first.length) return first;
   const second = tatamiLayer(region, { ...p, angle: s.fillAngle + s.laydownAngle2, entry: first[first.length - 1]!, exit });
   return [...first, ...second.slice(1)];
+}
+
+/**
+ * Travel from a to b along the edge just inside a region (inset by `inset`), the shorter way
+ * round; between different rings (or with no inset left) it travels inside instead.
+ */
+export function travelAlongEdge(a: Point, b: Point, region: Region, inset = 0.3): Point[] {
+  const rings = offsetOutlines(region, -inset).map(ringPath);
+  if (rings.length) {
+    const nearest = (p: Point) => rings.map((rp, i) => ({ i, ...projectOnRing(rp, p) })).reduce((x, y) => (y.dist < x.dist ? y : x));
+    const pa = nearest(a);
+    const pb = nearest(b);
+    if (pa.i === pb.i) return [a, ...shortWalk(rings[pa.i]!, pa.pos, pb.pos), b];
+  }
+  return travelInside(a, b, region);
 }
