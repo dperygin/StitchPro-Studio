@@ -72,11 +72,11 @@ export function App() {
       if (cancelled || !saved.length) return;
       await clearAutosave();
       const restored = saved.map((s) => newTab(s.doc, s.name, s.file));
-      setTabs((ts) => {
-        const untouched = ts.length === 1 && !ts[0]!.editor.doc.objects.length && !ts[0]!.editor.canUndo;
-        if (untouched) ts[0]!.editor.dispose();
-        return untouched ? restored : [...ts, ...restored];
-      });
+      // Side effects stay out of state updaters (React may run them during rendering).
+      const ts = tabsRef.current;
+      const untouched = ts.length === 1 && !ts[0]!.editor.doc.objects.length && !ts[0]!.editor.canUndo;
+      if (untouched) ts[0]!.editor.dispose();
+      setTabs(untouched ? restored : [...ts, ...restored]);
       setActiveId(restored[restored.length - 1]!.id);
       restored[restored.length - 1]!.editor.setStatus(`Restored ${restored.length} design${restored.length === 1 ? '' : 's'} from the last session`);
     });
@@ -224,13 +224,12 @@ export function App() {
   }, [editor]);
 
   const closeTab = (id: number) => {
-    setTabs((ts) => {
-      const left = ts.filter((t) => t.id !== id);
-      ts.find((t) => t.id === id)?.editor.dispose();
-      const next = left.length ? left : [newTab()];
-      if (id === activeId) setActiveId(next[next.length - 1]!.id);
-      return next;
-    });
+    const ts = tabsRef.current;
+    const left = ts.filter((t) => t.id !== id);
+    ts.find((t) => t.id === id)?.editor.dispose();
+    const next = left.length ? left : [newTab()];
+    setTabs(next);
+    if (id === activeId) setActiveId(next[next.length - 1]!.id);
   };
 
   const pointer = editor.pointer;
