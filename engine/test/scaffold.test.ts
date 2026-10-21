@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { polylineLength, polygonArea, unionArea, parseThreadChart, type Point } from '../src/index';
+import { polylineLength, polygonFromRings, regionArea, unionAll, parseThreadChart, type Point } from '../src/index';
 
 describe('engine scaffold', () => {
   it('measures polylines', () => {
@@ -9,8 +9,8 @@ describe('engine scaffold', () => {
   it('runs JSTS polygon operations', () => {
     const a: Point[] = [[0, 0], [10, 0], [10, 10], [0, 10]];
     const b = a.map(([x, y]): Point => [x + 5, y]);
-    expect(polygonArea(a)).toBe(100);
-    expect(unionArea(a, b)).toBe(150);
+    expect(regionArea(polygonFromRings(a))).toBe(100);
+    expect(regionArea(unionAll([polygonFromRings(a), polygonFromRings(b)]))).toBe(150);
   });
 
   it('parses thread chart lines', () => {
