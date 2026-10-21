@@ -17,6 +17,7 @@ import { PaletteBar } from './PaletteBar';
 import { Settings } from './Settings';
 import { ToolDialog } from './Dialogs';
 import { download, openDesigns, saveDesign } from './saveFile';
+import { decodeArtwork } from './artwork';
 
 type ServerState = 'checking' | 'online' | 'offline';
 
@@ -77,6 +78,14 @@ export function App() {
   }
 
   async function exportFile(fmt: string) {
+    if (!editor.hoopFits()) {
+      const d = editor.doc;
+      const ok = window.confirm(`The design is bigger than the ${d.hoopWidth} x ${d.hoopHeight} mm hoop. Export anyway?`);
+      if (!ok) {
+        editor.setStatus('Export cancelled: the design is bigger than the hoop');
+        return;
+      }
+    }
     editor.setStatus(`Exporting ${fmt.toUpperCase()}…`);
     const res = await fetch(`/api/export/${fmt}`, {
       method: 'POST',
@@ -90,6 +99,9 @@ export function App() {
     download(`${editor.doc.name || 'design'}.${fmt}`, await res.blob());
     editor.setStatus(`Exported ${fmt.toUpperCase()}`);
   }
+
+  // Pictures in the design are decoded so Pick Color can read them.
+  useEffect(() => decodeArtwork(editor));
 
   // Keys typed outside text fields go to the editor.
   useEffect(() => {

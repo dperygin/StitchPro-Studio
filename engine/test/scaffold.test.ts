@@ -15,6 +15,6 @@ describe('engine scaffold', () => {
 
   it('parses thread chart lines', () => {
     const t = parseThreadChart('0017,Isacord,Paper White ,,220,229,255,\r\nbad line\r\n');
-    expect(t).toEqual([{ code: '0017', brand: 'Isacord', name: 'Paper White', rgb: [220, 229, 255] }]);
+    expect(t).toEqual([{ code: '0017', brand: 'Isacord', name: 'Paper White', type: '', rgb: [220, 229, 255] }]);
   });
 });

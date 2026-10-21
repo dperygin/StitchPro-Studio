@@ -643,9 +643,17 @@ class PickTool extends BaseTool {
     const ed = this.editor;
     const p = ed.toDesign(e);
     if (this.mode === 'colour') {
+      // On a picture: the average of a 5 x 5 pixel area, as a new (or the matching) slot.
+      const fromArt = ed.artworkColourAt(p);
+      if (fromArt) {
+        ed.useOrAddColour(fromArt);
+        ed.setStatus(`Colour picked from the picture: rgb(${fromArt.join(', ')})`);
+        return;
+      }
       const hit = ed.objectAt(e);
       if (hit) {
         ed.currentColor = [...hit.color];
+        ed.changed('state');
         ed.setStatus(`Colour picked from ${hit.name}`);
       }
       return;

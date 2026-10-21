@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { command, shortcutLabel, type Editor } from '@stitchpro/editor';
-import { HOOPS, SHAPE_KINDS } from '@stitchpro/engine';
+import { HOOPS, HOOP_KIND_LABELS, SHAPE_KINDS, type HoopKind } from '@stitchpro/engine';
 import { useEditorState } from './useEditor';
 
 const EXPORT_FORMATS = ['dst', 'pes', 'exp', 'jef', 'vp3', 'xxx'] as const;
@@ -121,10 +121,14 @@ export function Toolbars({ editor, serverOnline }: { editor: Editor; serverOnlin
           onChange={(e) => editor.setHoop(e.target.value)}
         >
           {!editor.doc.hoopId && <option value="">{`${editor.doc.hoopWidth} x ${editor.doc.hoopHeight} mm`}</option>}
-          {HOOPS.map((h) => (
-            <option key={h.id} value={h.id}>
-              {h.name}
-            </option>
+          {(Object.keys(HOOP_KIND_LABELS) as HoopKind[]).map((kind) => (
+            <optgroup key={kind} label={HOOP_KIND_LABELS[kind]}>
+              {HOOPS.filter((h) => h.kind === kind).map((h) => (
+                <option key={h.id} value={h.id}>
+                  {h.name}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
         <Sep />

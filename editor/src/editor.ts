@@ -4,8 +4,12 @@
 import {
   StitchCache,
   applyClosestJoin,
+  POOR_MATCH_DELTA_E,
   arrayOffsets,
   circleTransforms,
+  fitsHoop,
+  nearestThread,
+  type Thread,
   offsetObjectOutlines,
   pathNode,
   pointInRegion,
@@ -112,6 +116,20 @@ export interface PlayerState {
   speed: number;
 }
 
+/** Decoded pixels of an artwork picture (RGBA rows), supplied by the host. */
+export interface ArtworkPixels {
+  width: number;
+  height: number;
+  data: Uint8ClampedArray;
+}
+
+export interface ChartMatchReport {
+  /** Worst ΔE 2000 between a colour and its thread. */
+  worst: number;
+  /** Colours whose best thread is further than ΔE 5. */
+  poor: number;
+}
+
 /** Copied properties: stitch settings and colour. */
 interface CopiedProperties {
   settings: StitchSettings;
@@ -152,6 +170,8 @@ export class Editor {
   /** Bumped whenever what the base layer shows changes. */
   baseRevision = 0;
   readonly player: PlayerState = { index: null, playing: false, speed: 400 };
+  /** Decoded artwork pictures by artwork id (the host decodes images; Pick Color reads them). */
+  readonly artworkPixels = new Map<number, ArtworkPixels>();
 
   tool: Tool;
   private listeners = new Set<ChangeListener>();
@@ -1214,6 +1234,88 @@ export class Editor {
     for (const o of this.doc.objects) if (sameColor(o.color, old.color)) this.replace({ ...o, color: [...slot.color], thread: slot.thread });
     if (sameColor(this.currentColor, old.color)) this.currentColor = [...slot.color];
     this.commit('Edit colour');
+  }
+
+  /** Makes a colour current, picking the palette slot that has it or adding one. */
+  useOrAddColour(color: RGB, thread: ThreadRef | null = null): void {
+    const slot = this.doc.palette.find((s) => sameColor(s.color, color));
+    if (!slot) {
+      this.doc.palette = [...this.doc.palette, { color: [...color], thread }];
+      this.commit('Add colour');
+    }
+    this.useColour(color, slot?.thread ?? thread);
+  }
+
+  setArtworkPixels(id: number, pixels: ArtworkPixels | null): void {
+    if (pixels) this.artworkPixels.set(id, pixels);
+    else this.artworkPixels.delete(id);
+  }
+
+  /**
+   * The average colour of a 5 x 5 pixel area of the topmost visible picture under a design
+   * point, or null when there is no (decoded) picture there.
+   */
+  artworkColourAt(p: Point): RGB | null {
+    for (let i = this.doc.artwork.length - 1; i >= 0; i--) {
+      const a = this.doc.artwork[i]!;
+      if (!a.visible || p[0] < a.x || p[1] < a.y || p[0] > a.x + a.width || p[1] > a.y + a.height) continue;
+      const px = this.artworkPixels.get(a.id);
+      if (!px || a.width <= 0 || a.height <= 0) continue;
+      const cx = Math.floor(((p[0] - a.x) / a.width) * px.width);
+      const cy = Math.floor(((p[1] - a.y) / a.height) * px.height);
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let n = 0;
+      for (let y = cy - 2; y <= cy + 2; y++) {
+        for (let x = cx - 2; x <= cx + 2; x++) {
+          if (x < 0 || y < 0 || x >= px.width || y >= px.height) continue;
+          const k = (y * px.width + x) * 4;
+          r += px.data[k]!;
+          g += px.data[k + 1]!;
+          b += px.data[k + 2]!;
+          n++;
+        }
+      }
+      if (!n) continue;
+      return [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
+    }
+    return null;
+  }
+
+  /**
+   * Gives every palette colour (and its objects) the nearest thread of a chart (CIEDE2000), as
+   * one undo step. Reports the worst ΔE in the status when it is above 5.
+   */
+  matchColoursToChart(chart: string, threads: readonly Thread[]): ChartMatchReport {
+    let worst = 0;
+    let poor = 0;
+    const palette = this.doc.palette.map((slot) => {
+      const m = nearestThread(slot.color, threads);
+      if (!m) return slot;
+      worst = Math.max(worst, m.deltaE);
+      if (m.deltaE > POOR_MATCH_DELTA_E) poor++;
+      const next = { color: [...m.thread.rgb] as RGB, thread: { chart, code: m.thread.code, name: m.thread.name } };
+      for (const o of this.doc.objects) if (sameColor(o.color, slot.color)) this.replace({ ...o, color: [...next.color], thread: next.thread });
+      if (sameColor(this.currentColor, slot.color)) this.currentColor = [...next.color];
+      return next;
+    });
+    this.doc.palette = palette;
+    this.doc.threadChart = chart;
+    this.commit(`Match to ${chart}`);
+    this.setStatus(
+      worst > POOR_MATCH_DELTA_E
+        ? `Matched to ${chart}: ${poor} colour${poor === 1 ? '' : 's'} not close (worst ΔE ${worst.toFixed(1)})`
+        : `Matched to ${chart} (worst ΔE ${worst.toFixed(1)})`,
+    );
+    return { worst, poor };
+  }
+
+  /** Whether every stitch of the visible design lies inside the hoop's sewing field. */
+  hoopFits(): boolean {
+    const d = this.doc;
+    const pts = d.objects.filter((o) => o.visible).flatMap((o) => this.stitches(o));
+    return fitsHoop(pts, d.hoopWidth, d.hoopHeight, d.hoopShape, d.hoopCorner);
   }
 
   /** Removes a palette slot (not while an object still uses it). */

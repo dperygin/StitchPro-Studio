@@ -610,3 +610,54 @@ body,
   gap: 6px;
   margin-top: 12px;
 }
+
+.small {
+  font-size: 11px;
+  margin: 6px 0 2px;
+}
+
+.closest-threads {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+
+.thread-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.thread-row:hover {
+  background: var(--panel-2);
+}
+
+.thread-code {
+  width: 48px;
+  font-variant-numeric: tabular-nums;
+}
+
+.thread-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delta {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.delta.poor {
+  color: var(--danger);
+}
