@@ -9,11 +9,11 @@ export class View {
   panX = 0;
   panY = 0;
 
-  toScreen(p: Point): Point {
-    return { x: p.x * this.zoom + this.panX, y: p.y * this.zoom + this.panY };
+  toScreen([x, y]: Point): Point {
+    return [x * this.zoom + this.panX, y * this.zoom + this.panY];
   }
 
-  toDesign(p: Point): Point {
-    return { x: (p.x - this.panX) / this.zoom, y: (p.y - this.panY) / this.zoom };
+  toDesign([x, y]: Point): Point {
+    return [(x - this.panX) / this.zoom, (y - this.panY) / this.zoom];
   }
 }

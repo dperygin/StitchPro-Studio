@@ -8,10 +8,11 @@ import type { Point } from './types';
 const factory = new GeometryFactory();
 
 function toPolygon(ring: readonly Point[]) {
-  const coords = ring.map((p) => new Coordinate(p.x, p.y));
+  const coords = ring.map(([x, y]) => new Coordinate(x, y));
   const first = ring[0];
-  if (first && (first.x !== ring[ring.length - 1]!.x || first.y !== ring[ring.length - 1]!.y)) {
-    coords.push(new Coordinate(first.x, first.y));
+  const last = ring[ring.length - 1];
+  if (first && last && (first[0] !== last[0] || first[1] !== last[1])) {
+    coords.push(new Coordinate(first[0], first[1]));
   }
   return factory.createPolygon(factory.createLinearRing(coords));
 }

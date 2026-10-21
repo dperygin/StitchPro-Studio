@@ -16,12 +16,12 @@ describe('editor scaffold', () => {
 
   it('keeps the design point under the cursor when zooming', () => {
     const editor = new Editor();
-    const screen = { x: 200, y: 150 };
+    const screen: [number, number] = [200, 150];
     const before = editor.view.toDesign(screen);
     editor.zoomAt(screen, 2);
     const after = editor.view.toDesign(screen);
-    expect(after.x).toBeCloseTo(before.x);
-    expect(after.y).toBeCloseTo(before.y);
+    expect(after[0]).toBeCloseTo(before[0]);
+    expect(after[1]).toBeCloseTo(before[1]);
   });
 
   it('converts units', () => {

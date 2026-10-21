@@ -3,7 +3,7 @@
 import type { Point } from './types';
 
 export function distance(a: Point, b: Point): number {
-  return Math.hypot(b.x - a.x, b.y - a.y);
+  return Math.hypot(b[0] - a[0], b[1] - a[1]);
 }
 
 export function polylineLength(points: readonly Point[]): number {

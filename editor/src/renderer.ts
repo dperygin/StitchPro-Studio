@@ -14,6 +14,6 @@ export class Renderer {
     this.ctx.fillStyle = '#ffffff';
     this.ctx.fillRect(0, 0, canvas.width, canvas.height);
     // Design drawing arrives in a later step; touch the editor so the API is wired.
-    void this.editor.design;
+    void this.editor.doc;
   }
 }

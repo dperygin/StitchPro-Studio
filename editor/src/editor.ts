@@ -1,6 +1,6 @@
 // The Editor class: tools, selection, commands, undo. All editing logic lives here.
 
-import { StitchCache, createDesign, type Design, type Point } from '@stitchpro/engine';
+import { StitchCache, createDocument, type Point, type StitchDocument } from '@stitchpro/engine';
 import { History } from './history';
 import { View } from './view';
 import type { Units } from './units';
@@ -8,7 +8,7 @@ import type { Units } from './units';
 export type ChangeListener = () => void;
 
 export class Editor {
-  design: Design = createDesign();
+  doc: StitchDocument = createDocument();
   readonly view = new View();
   readonly history = new History();
   readonly stitchCache = new StitchCache();
@@ -43,8 +43,8 @@ export class Editor {
   zoomAt(screen: Point, factor: number): void {
     const before = this.view.toDesign(screen);
     this.view.zoom = Math.min(400, Math.max(0.05, this.view.zoom * factor));
-    this.view.panX = screen.x - before.x * this.view.zoom;
-    this.view.panY = screen.y - before.y * this.view.zoom;
+    this.view.panX = screen[0] - before[0] * this.view.zoom;
+    this.view.panY = screen[1] - before[1] * this.view.zoom;
     this.changed();
   }
 
