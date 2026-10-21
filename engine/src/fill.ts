@@ -7,14 +7,12 @@
 // A jump is marked by the landing point repeated: it appears JUMP_MARK times in a row.
 
 import { mulberry32 } from './columns';
-import { offsetOutlines, pointInRegion, regionRings, type Polygon, type Region, type Ring } from './geometry';
+import { bufferRegion, offsetOutlines, pointInRegion, regionRings, type Polygon, type Region, type Ring } from './geometry';
 import { closestOnSegment, cumulativeLengths, distance, floorMod, pointAt, resampleKeepingCorners } from './path';
 import { runningStitch } from './stitchlib';
-import type { FillPattern, Point, StitchSettings } from './types';
+import { JUMP_MARK, type FillPattern, type Point, type StitchSettings } from './types';
 
 const EPS = 1e-9;
-/** How many times a jump's landing point is written in a row. */
-export const JUMP_MARK = 3;
 /** Travel stitch length, mm. */
 export const TRAVEL_STITCH = 2.5;
 
@@ -34,6 +32,8 @@ export interface TatamiParams {
   travelOnEdge: boolean;
   entry: Point | null;
   exit: Point | null;
+  /** Satin fill: only the row ends are sewn, no needle points between. */
+  rowsOnly?: boolean;
 }
 
 /** Tatami parameters for the top layer of an object (settings already have sewn spacing). */
@@ -204,7 +204,7 @@ export function rowNeedles(row: Row, dir: 1 | -1, p: TatamiParams): Point[] {
   if (b - a < EPS) a = b = (row.x0 + row.x1) / 2;
   const L = p.stitchLength;
   let xs: number[] = [];
-  if (b - a > EPS) {
+  if (b - a > EPS && !p.rowsOnly) {
     if (!p.stagger) {
       const n = Math.max(1, Math.ceil((b - a) / L - 1e-9));
       for (let k = 1; k < n; k++) xs.push(a + ((b - a) * k) / n);
@@ -792,4 +792,89 @@ export function fillEdgeRun(region: Region, s: StitchSettings, layer: 1 | 2 = 1)
     out.push(...run);
   }
   return out;
+}
+
+// ---- satin fill ----
+
+/** Satin fill: tatami rows at the satin density with no needle points between row ends. */
+export function satinFillParams(s: StitchSettings, entry: Point | null = null, exit: Point | null = null): TatamiParams {
+  return { ...tatamiParams(s, entry, exit), rowSpacing: s.satinDensity, rowsOnly: true };
+}
+
+// ---- radial fill (outline stitch) ----
+
+/** A closed ring rotated to start (and end) at its vertex nearest p. */
+function startAtNearestVertex(ring: Ring, p: Point | null): Ring {
+  if (!p || ring.length < 3) return ring;
+  const body = ring.slice(0, -1);
+  let best = 0;
+  body.forEach((q, i) => {
+    if (distance(q, p) < distance(body[best]!, p)) best = i;
+  });
+  const out = [...body.slice(best), ...body.slice(0, best)];
+  out.push(out[0]!);
+  return out;
+}
+
+/**
+ * Radial fill: rings inset by outlineSpacing each time (polygon offset), each started at the
+ * vertex nearest the last ring's end. When an inset pinches into pieces, each piece is
+ * finished in turn, nearest first; rings round holes are sewn last. Ripple outward sews the
+ * whole thing from the centre out.
+ */
+export function radialFill(region: Region, s: StitchSettings, entry: Point | null = null): Point[] {
+  const spacing = Math.max(0.1, s.outlineSpacing);
+  const out: Point[] = [];
+  const holeRings: Ring[] = [];
+  let cur: Point | null = entry;
+  const sewRing = (ring: Ring) => {
+    const pts = runningStitch(startAtNearestVertex(ring, cur), {
+      stitchLength: s.outlineStitchLength,
+      runStyle: 'single',
+      stemWidth: 0,
+    });
+    if (!pts.length) return;
+    if (out.length) out.push(...travelStitches(travelInside(out[out.length - 1]!, pts[0]!, region)).slice(0, -1));
+    out.push(...pts);
+    cur = out[out.length - 1]!;
+  };
+  const nearestFirst = <T>(items: T[], dist: (t: T) => number): T | undefined => {
+    if (!items.length) return undefined;
+    let best = 0;
+    items.forEach((it, i) => {
+      if (dist(it) < dist(items[best]!)) best = i;
+    });
+    return items.splice(best, 1)[0];
+  };
+  const sewPiece = (poly: Polygon) => {
+    sewRing(poly.outer);
+    holeRings.push(...poly.holes);
+    const inner = bufferRegion([poly], -spacing);
+    for (let next = nearestFirst(inner, (q) => (cur ? distanceToPoly(q, cur) : 0)); next; next = nearestFirst(inner, (q) => (cur ? distanceToPoly(q, cur) : 0))) {
+      sewPiece(next);
+    }
+  };
+  const pieces = [...region];
+  for (let next = nearestFirst(pieces, (q) => (cur ? distanceToPoly(q, cur) : 0)); next; next = nearestFirst(pieces, (q) => (cur ? distanceToPoly(q, cur) : 0))) {
+    sewPiece(next);
+  }
+  for (let ring = nearestFirst(holeRings, (r) => (cur ? projectOnRing(ringPath(r), cur).dist : 0)); ring; ring = nearestFirst(holeRings, (r) => (cur ? projectOnRing(ringPath(r), cur).dist : 0))) {
+    sewRing(ring);
+  }
+  return s.rippleOutward ? out.reverse() : out;
+}
+
+// ---- laydown ----
+
+/**
+ * Laydown: tatami without stagger at its spacing and length; with two layers, a second pass
+ * at fillAngle + laydownAngle2 starting where the first ended. (Laydown has no underlay.)
+ */
+export function laydown(region: Region, s: StitchSettings, entry: Point | null = null, exit: Point | null = null): Point[] {
+  const p: TatamiParams = { ...tatamiParams(s, entry, null), stagger: false };
+  if (s.laydownLayers < 2) return tatamiLayer(region, { ...p, exit });
+  const first = tatamiLayer(region, p);
+  if (!first.length) return first;
+  const second = tatamiLayer(region, { ...p, angle: s.fillAngle + s.laydownAngle2, entry: first[first.length - 1]!, exit });
+  return [...first, ...second.slice(1)];
 }

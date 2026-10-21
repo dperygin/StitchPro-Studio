@@ -1,11 +1,12 @@
 // Picks the generator per stitch type; underlay.
 
 import type { StitchObject } from './document';
-import { columnStitches, twoRailStitches } from './columns';
-import { tatamiParams } from './fill';
+import { autoSplit, columnStitches, twoRailStitches } from './columns';
+import { laydown, radialFill, satinFillParams, tatamiParams } from './fill';
+import { motifFill, motifLine } from './motifs';
 import { polygonFromRings, type Region } from './geometry';
 import { materializePath } from './path';
-import { raisedSatin, runningStitch } from './stitchlib';
+import { contourFill, crossStitchFill, raisedSatin, runningStitch, stippleFill } from './stitchlib';
 import { fillWithAngles } from './turning';
 import type { Motif, Point, StitchSettings, StitchType } from './types';
 
@@ -36,7 +37,7 @@ export function generateUnderlay(_o: StitchObject, _motifs: readonly Motif[]): P
   return [];
 }
 
-export function generateTopStitching(o: StitchObject, _motifs: readonly Motif[]): Point[] {
+export function generateTopStitching(o: StitchObject, motifs: readonly Motif[]): Point[] {
   const s = sewnSpacing(o.settings);
   switch (s.stitchType) {
     case 'running':
@@ -48,8 +49,27 @@ export function generateTopStitching(o: StitchObject, _motifs: readonly Motif[])
     case 'zigzag':
     case 'e_stitch':
       return columnStitches(o.points, o.closed, s, s.stitchType);
+    case 'manual':
+      return o.points.map((n): Point => [n.x, n.y]);
+    case 'motif_line':
+      return motifLine(materializePath(o.points, o.closed), s, motifs);
     case 'fill':
       return fillWithAngles(areaRegion(o), o.stitchAngles, tatamiParams(s, o.fillStart, o.fillEnd));
+    case 'satin_fill':
+      // Satin fill always splits long stitches.
+      return autoSplit(fillWithAngles(areaRegion(o), o.stitchAngles, satinFillParams(s, o.fillStart, o.fillEnd)), s.splitLength);
+    case 'outline':
+      return radialFill(areaRegion(o), s, o.fillStart);
+    case 'contour':
+      return contourFill(areaRegion(o), s);
+    case 'stipple':
+      return stippleFill(areaRegion(o), s);
+    case 'cross_stitch':
+      return crossStitchFill(areaRegion(o), s);
+    case 'motif_fill':
+      return motifFill(areaRegion(o), s, motifs);
+    case 'laydown':
+      return laydown(areaRegion(o), s, o.fillStart, o.fillEnd);
     case 'radial_satin':
       return twoRailStitches(
         { rail1: o.points, rail2: o.rail2, closed: o.closed, paired: s.pairedRails, stitchAngles: o.stitchAngles },

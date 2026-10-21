@@ -3,6 +3,12 @@
 /** [x, y] in mm. */
 export type Point = [number, number];
 
+/**
+ * A jump inside one object's stitches is marked by its landing point written this many times
+ * in a row (the export plan turns it into a trim/jump).
+ */
+export const JUMP_MARK = 3;
+
 /** [r, g, b], each 0..255. */
 export type RGB = [number, number, number];
 
