@@ -4,35 +4,43 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { command, shortcutLabel, type Editor } from '@stitchpro/editor';
 import { HOOPS, HOOP_KIND_LABELS, SHAPE_KINDS, type HoopKind } from '@stitchpro/engine';
 import logoMark from './assets/logo-mark.png';
+import { usePreview } from './PreviewCard';
 import { useEditorState } from './useEditor';
 
 const EXPORT_FORMATS = ['dst', 'pes', 'exp', 'jef', 'vp3', 'xxx'] as const;
 
 export function CommandButton({ editor, id, label, arg }: { editor: Editor; id: string; label?: string; arg?: unknown }) {
   const cmd = command(id);
+  const keys = shortcutLabel(id);
+  const title = !cmd ? '' : cmd.ready ? `${cmd.label}${keys ? ` (${keys})` : ''}` : `${cmd.label} (coming in a later step)`;
+  // Top-row buttons show a stitched preview card instead of the plain tooltip.
+  const { handlers, card } = usePreview(id, title);
   if (!cmd) return null;
   const enabled = editor.isEnabled(id);
   const checked = editor.isChecked(id);
-  const keys = shortcutLabel(id);
-  const title = cmd.ready ? `${cmd.label}${keys ? ` (${keys})` : ''}` : `${cmd.label} (coming in a later step)`;
   return (
-    <button
-      type="button"
-      className={`tb-button${checked ? ' checked' : ''}`}
-      disabled={!enabled}
-      aria-pressed={checked || undefined}
-      title={title}
-      data-command={id}
-      onClick={() => editor.run(id, arg)}
-    >
-      {label ?? cmd.label}
-    </button>
+    <>
+      <button
+        type="button"
+        className={`tb-button${checked ? ' checked' : ''}`}
+        disabled={!enabled}
+        aria-pressed={checked || undefined}
+        title={handlers ? undefined : title}
+        data-command={id}
+        onClick={() => editor.run(id, arg)}
+        {...handlers}
+      >
+        {label ?? cmd.label}
+      </button>
+      {card}
+    </>
   );
 }
 
 /** A dropdown menu of commands (closes on click outside). */
-export function Menu({ label, children, testId }: { label: string; children: ReactNode; testId?: string }) {
+export function Menu({ label, children, testId, previewId }: { label: string; children: ReactNode; testId?: string; previewId?: string }) {
   const [open, setOpen] = useState(false);
+  const { handlers, card } = usePreview(previewId ?? '', label);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -44,9 +52,10 @@ export function Menu({ label, children, testId }: { label: string; children: Rea
   }, [open]);
   return (
     <div className="menu" ref={ref}>
-      <button type="button" className="tb-button" aria-expanded={open} data-testid={testId} onClick={() => setOpen(!open)}>
+      <button type="button" className="tb-button" aria-expanded={open} data-testid={testId} onClick={() => setOpen(!open)} {...(open ? {} : handlers)}>
         {label} ▾
       </button>
+      {!open && card}
       {open && (
         <div className="menu-items" role="menu" onClick={() => setOpen(false)}>
           {children}
@@ -77,7 +86,7 @@ export function Toolbars({ editor, serverOnline }: { editor: Editor; serverOnlin
         <Sep />
         {B('shape.circle')}
         {B('shape.rectangle')}
-        <Menu label="Shapes">{SHAPE_KINDS.filter((k) => k !== 'circle' && k !== 'rectangle').map((k) => B(`shape.${k}`))}</Menu>
+        <Menu label="Shapes" previewId="menu.shapes">{SHAPE_KINDS.filter((k) => k !== 'circle' && k !== 'rectangle').map((k) => B(`shape.${k}`))}</Menu>
         <Sep />
         {B('mode.outline')}
         {B('mode.fill')}
