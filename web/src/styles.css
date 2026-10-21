@@ -883,3 +883,90 @@ body,
   border: 1px solid #999;
   vertical-align: middle;
 }
+
+/* ---- brand: the palette made visible ---- */
+
+/* Toolbars: a navy band with white text; checked tools solid raspberry. */
+.toolbars {
+  background: var(--navy);
+  border-bottom: 3px solid var(--raspberry);
+}
+.toolbar {
+  border-bottom-color: rgb(255 255 255 / 0.12);
+}
+.toolbars .tb-button,
+.toolbars .tb-field {
+  color: #ffffff;
+}
+.toolbars .tb-button:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.14);
+  border-color: rgb(255 255 255 / 0.25);
+}
+.toolbars .tb-button.checked {
+  background: var(--raspberry);
+  border-color: var(--raspberry);
+  color: #ffffff;
+}
+.toolbars .tb-button:disabled {
+  color: #b9c3d6;
+  opacity: 0.6;
+}
+.toolbars .tb-sep {
+  background: rgb(255 255 255 / 0.25);
+}
+/* Fields and dropdown menus inside the band stay light, with dark text. */
+.toolbars .tb-select,
+.toolbars .tb-number {
+  background: #ffffff;
+  color: #1b2236;
+  border-color: transparent;
+}
+.toolbars .menu-items .tb-button {
+  color: var(--text);
+}
+.toolbars .menu-items .tb-button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+.toolbars .menu-items .tb-button.checked {
+  color: #ffffff;
+}
+.toolbars .menu-items .tb-button:disabled {
+  color: var(--muted);
+}
+
+/* Panels: purple headings over a lavender rule. */
+.panel h2 {
+  color: var(--purple);
+  padding-bottom: 4px;
+  border-bottom: 2px solid var(--lavender);
+}
+
+/* Panel buttons: checked ones in raspberry too. */
+.panel .tb-button.checked {
+  background: var(--raspberry);
+  border-color: var(--raspberry);
+  color: #ffffff;
+}
+
+/* Selected rows: lavender tint with a purple marker. */
+.seq-row.selected {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--purple);
+}
+
+/* The active design tab: a raspberry top edge. */
+.design-tab.active {
+  box-shadow: inset 0 3px 0 var(--raspberry);
+}
+
+/* Status bar: a lavender band. */
+.status-bar {
+  background: var(--accent-soft);
+  border-top: 2px solid var(--lavender);
+}
+
+/* Dialog titles in navy (lavender in dark mode, through --accent). */
+.dialog h2 {
+  color: var(--accent);
+}
