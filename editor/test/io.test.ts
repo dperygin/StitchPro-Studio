@@ -74,6 +74,9 @@ describe('stitch player', () => {
   it('steps object by object', () => {
     const ed = editorWith(3);
     const order = ed.sewingOrder();
+    // From the full view (not playing), forward goes to the end of the first object.
+    ed.playerStepObject(1);
+    expect(ed.player.index).toBe(order[0]!.count);
     ed.playerSeek(0);
     ed.playerStepObject(1);
     expect(ed.player.index).toBe(order[0]!.start + order[0]!.count);

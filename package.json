@@ -14,6 +14,8 @@
     "e2e": "npm run e2e -w @stitchpro/web",
     "test": "npm run test --workspaces --if-present && node server/run.mjs test",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "check": "npm run typecheck && npm test && npm run e2e",
+    "hooks": "git config core.hooksPath .githooks",
     "fonts:draft": "tsx scripts/draft-fonts.ts"
   },
   "engines": {

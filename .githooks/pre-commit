@@ -1,0 +1,5 @@
+#!/bin/sh
+# Before each commit: typecheck, unit tests (engine, editor, server) and the browser tests,
+# which include the screenshot checks of the UI. Install once with: npm run hooks
+# (Skip in an emergency with git commit --no-verify.)
+exec npm run check

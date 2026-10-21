@@ -80,7 +80,7 @@ export function PropertiesPanel({ editor }: { editor: Editor }) {
       <h2>Properties{sel.length > 1 ? ` (${sel.length} objects)` : ''}</h2>
       <div className="field">
         <label htmlFor="prop-name">Name</label>
-        <input id="prop-name" type="text" defaultValue={o.name} key={`${o.id}-${o.name}`} onBlur={(e) => e.target.value !== o.name && editor.updateSelected({ name: e.target.value })} />
+        <input id="prop-name" type="text" defaultValue={o.name} key={`${o.id}-${o.name}`} onBlur={(e) => e.target.value !== o.name && editor.updateSelected({ name: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
       </div>
       <div className="field">
         <label htmlFor="prop-type">Stitch type</label>

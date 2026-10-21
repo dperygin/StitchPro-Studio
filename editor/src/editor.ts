@@ -1690,7 +1690,8 @@ export class Editor {
   /** Object-by-object: to the end of the current object (+1) or the start of the previous one (-1). */
   playerStepObject(dir: 1 | -1): void {
     const order = this.sewingOrder();
-    const at = this.player.index ?? this.totalStitches();
+    // From the full view, forward starts at the first object and back at the last.
+    const at = this.player.index ?? (dir > 0 ? 0 : this.totalStitches());
     if (dir > 0) {
       const next = order.find((e) => e.start + e.count > at);
       this.playerSeek(next ? next.start + next.count : this.totalStitches());

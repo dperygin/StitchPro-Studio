@@ -82,6 +82,38 @@ def test_export_round_trip(fmt):
     assert h2 == pytest.approx(16, abs=0.2)
 
 
+@pytest.mark.parametrize("fmt", FORMATS)
+def test_read_back_matches_every_stitch(fmt):
+    """Written, read back and compared: every planned stitch comes back, in order, within 0.1 mm,
+    in the same colour block; long stitches may come back split by the writer."""
+    plan = sample_plan()
+    r = client.post(f"/api/export/{fmt}", json=plan)
+    data = client.post(f"/api/import/{fmt}", content=r.content).json()
+    back = [(p, run["thread"]) for run in data["runs"] for p in run["points"]]
+
+    # These formats write a stop as a colour change, so it reads back as a new colour block.
+    stop_is_change = fmt in ("dst", "exp", "xxx")
+    planned = []
+    block = 0
+    for kind, x, y in plan["commands"]:
+        if kind == "color_change" or (kind == "stop" and stop_is_change):
+            block += 1
+        elif kind == "stitch":
+            planned.append(((x, y), block))
+
+    i = 0
+    for (x, y), b in planned:
+        while i < len(back) and not (abs(back[i][0][0] - x) <= 0.1 and abs(back[i][0][1] - y) <= 0.1):
+            i += 1
+        assert i < len(back), f"{fmt}: stitch ({x}, {y}) missing after reading back"
+        assert back[i][1] == b, f"{fmt}: stitch ({x}, {y}) came back in colour block {back[i][1]}, not {b}"
+        i += 1
+    # Nothing beyond the design's extent was added.
+    xs = [p[0] for p, _ in back]
+    ys = [p[1] for p, _ in back]
+    assert min(xs) >= -0.1 and max(xs) <= 50.1 and min(ys) >= -0.1 and max(ys) <= 16.1
+
+
 @pytest.mark.parametrize("fmt", ["pes", "vp3"])
 def test_thread_colours_round_trip(fmt):
     r = client.post(f"/api/export/{fmt}", json=sample_plan())

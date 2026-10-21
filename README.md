@@ -46,6 +46,28 @@ Open http://localhost:5173. Vite forwards `/api` to the server. If Python is mis
 npm run typecheck   # tsc for engine, editor and web
 npm test            # Vitest (engine, editor) + pytest (server)
 npm run e2e         # Playwright (Chromium); starts its own web on 5174 and server on 8001
+npm run check       # all three, in that order
+```
+
+What the suites cover:
+
+- **Engine (Vitest):** every stitch generator against the same checks (deterministic, stitch counts, stays inside the shape's extent, spacing, longest stitch), the export plan, `.sps`/`.spf` round trips, text layout and fonts, the auto-digitizer, knockout/cut/weld/laydown/applique, threads, hoops, SVG and machine-file import, worksheet numbers and page tiling.
+- **Editor (Vitest):** every tool driven with fake pointer and key events, commands and shortcuts, undo, the renderer's caching.
+- **Server (pytest):** every machine format written, read back and compared stitch by stitch; validation, entitlement, imports and fonts.
+- **Browser (Playwright):** every feature through the real UI, with their own server pair (ports 5174 / 8001) and a fresh temporary fonts folder per run, plus screenshot checks of the main screen, a design, the export dialog and a menu.
+
+### Before each commit
+
+Run `npm run check`: typecheck, unit tests and browser tests, including the screenshot checks. A git hook does this for you; install it once per clone:
+
+```powershell
+npm run hooks       # git config core.hooksPath .githooks
+```
+
+After an intended UI change, look at the differences Playwright reports (`web\playwright-report`), then accept the new pictures:
+
+```powershell
+npm run e2e -- --update-snapshots
 ```
 
 To run one part:
