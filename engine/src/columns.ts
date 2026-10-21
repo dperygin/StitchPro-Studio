@@ -15,10 +15,12 @@ import {
   lineIntersection,
   materializeDetailed,
   pointAt,
+  restartRing,
   roundHalfEven,
   valueAt,
   vertexAngleDeg,
 } from './path';
+import { ringArea } from './geometry';
 import type { PathNode, Point, StitchSettings } from './types';
 
 export interface Rung {
@@ -61,6 +63,20 @@ export function mulberry32(seed: number): number {
   let t = Math.imul(a ^ (a >>> 15), 1 | a);
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+/**
+ * How far a ragged edge pulls the edge point at arc length d in (never more than 0.9 x the
+ * half width w / 2): periodic amount x (0.5 - 0.5 cos(2 pi (d / period + side / 2))), or
+ * random amount x mulberry32(round(d x 1000) x 2 + side).
+ */
+export function raggedPull(s: StitchSettings, d: number, side: 0 | 1, w: number): number {
+  if (s.raggedMode === 'none') return 0;
+  const amount =
+    s.raggedMode === 'periodic'
+      ? s.raggedAmount * (0.5 - 0.5 * Math.cos(2 * Math.PI * (d / s.raggedPeriod + side / 2)))
+      : s.raggedAmount * mulberry32(roundHalfEven(d * 1000) * 2 + side);
+  return Math.min(amount, 0.9 * (w / 2));
 }
 
 // ---- small vector helpers ----
@@ -373,14 +389,7 @@ export function columnRungs(
     });
   }
 
-  const ragged = (d: number, side: 0 | 1, w: number): number => {
-    if (s.raggedMode === 'none') return 0;
-    const amount =
-      s.raggedMode === 'periodic'
-        ? s.raggedAmount * (0.5 - 0.5 * Math.cos(2 * Math.PI * (d / s.raggedPeriod + side / 2)))
-        : s.raggedAmount * mulberry32(roundHalfEven(d * 1000) * 2 + side);
-    return Math.min(amount, 0.9 * (w / 2));
-  };
+  const ragged = (d: number, side: 0 | 1, w: number) => raggedPull(s, d, side, w);
   const makeRung = (c: Point, n: Point, w: number, d: number, sp: number, corner = false): Rung => ({
     c,
     n,
@@ -483,8 +492,15 @@ export function columnRungs(
 
 // ---- needle points ----
 
-/** Satin and zigzag: one needle point per rung, alternating edges. */
-function alternate(rungs: Rung[], s: StitchSettings, satin: boolean, opts: ColumnOptions): Point[] {
+interface EdgeRules {
+  /** Stitch shortening: crowded ends stop 35 % of the way across from the other end. */
+  shorten: boolean;
+  /** Auto split long stitches at splitLength. */
+  split: boolean;
+}
+
+/** One needle point per rung, alternating edges (satin, zigzag, two-rail satin). */
+function alternate(rungs: Rung[], s: StitchSettings, rules: EdgeRules, opts: ColumnOptions): Point[] {
   const firstSide = opts.firstSide ?? 0;
   const pts: Point[] = [];
   const sides: (0 | 1)[] = [];
@@ -493,7 +509,7 @@ function alternate(rungs: Rung[], s: StitchSettings, satin: boolean, opts: Colum
     const side = ((i + firstSide) % 2) as 0 | 1;
     let p = rungEnd(r, side);
     let short = false;
-    if (satin && s.stitchShortening && i >= 2 && !shortened[i - 2]) {
+    if (rules.shorten && i >= 2 && !shortened[i - 2]) {
       if (distance(p, pts[i - 2]!) < 0.6 * (2 * r.sp)) {
         p = lerp(rungEnd(r, (1 - side) as 0 | 1), p, 0.35);
         short = true;
@@ -506,7 +522,7 @@ function alternate(rungs: Rung[], s: StitchSettings, satin: boolean, opts: Colum
   if (opts.lastSide !== undefined && rungs.length && sides[sides.length - 1] !== opts.lastSide) {
     pts.push(rungEnd(rungs[rungs.length - 1]!, opts.lastSide));
   }
-  return satin && s.autoSplit ? autoSplit(pts, s.splitLength) : pts;
+  return rules.split ? autoSplit(pts, s.splitLength) : pts;
 }
 
 /**
@@ -548,5 +564,284 @@ export function columnStitches(
 ): Point[] {
   const rungs = columnRungs(nodes, closed, s, kind, opts);
   if (kind === 'e_stitch') return eStitch(rungs, s);
-  return alternate(rungs, s, kind === 'satin', opts);
+  const satin = kind === 'satin';
+  return alternate(rungs, s, { shorten: satin && s.stitchShortening, split: satin && s.autoSplit }, opts);
+}
+
+// ---- two-rail satin and the column tool ----
+
+/** A stretch of the column between two rungs: arc ranges on each rail. */
+interface RailPiece {
+  a0: number;
+  a1: number;
+  b0: number;
+  b1: number;
+  /** The longer rail's length over this piece. */
+  len: number;
+  /** Column position where the piece starts. */
+  u0: number;
+}
+
+/** Two rails walked together: a column position u maps to one point on each rail. */
+export interface RailColumn {
+  r1: Point[];
+  r2: Point[];
+  cum1: number[];
+  cum2: number[];
+  pieces: RailPiece[];
+  /** Column length: the sum of each piece's longer rail. */
+  length: number;
+  /** Sewn piece by piece between rungs (column tool, stitch angle lines). */
+  piecewise: boolean;
+}
+
+export interface RailRung {
+  /** Point on rail 1. */
+  a: Point;
+  /** Point on rail 2. */
+  b: Point;
+  /** Column position. */
+  u: number;
+}
+
+export function railRungAt(col: RailColumn, u: number): RailRung {
+  const { pieces } = col;
+  let k = 0;
+  while (k < pieces.length - 1 && u > pieces[k]!.u0 + pieces[k]!.len) k++;
+  const p = pieces[k]!;
+  const t = p.len > EPS ? Math.min(1, Math.max(0, (u - p.u0) / p.len)) : 0;
+  return {
+    a: pointAt(col.r1, p.a0 + t * (p.a1 - p.a0), col.cum1),
+    b: pointAt(col.r2, p.b0 + t * (p.b1 - p.b0), col.cum2),
+    u,
+  };
+}
+
+const lastOf = <T>(a: readonly T[]): T => a[a.length - 1]!;
+
+/** Where the infinite line through p-q crosses a polyline, as arc length; nearest the line's middle. */
+function crossingOnRail(p: Point, q: Point, rail: readonly Point[], cum: readonly number[]): number | null {
+  const mid = lerp(p, q, 0.5);
+  let best: number | null = null;
+  let bestDist = Infinity;
+  for (let i = 1; i < rail.length; i++) {
+    const hit = lineIntersection(p, q, rail[i - 1]!, rail[i]!);
+    if (!hit || hit.u < -EPS || hit.u > 1 + EPS) continue;
+    const d = distance(hit.point, mid);
+    if (d < bestDist) {
+      bestDist = d;
+      best = cum[i - 1]! + Math.min(1, Math.max(0, hit.u)) * (cum[i]! - cum[i - 1]!);
+    }
+  }
+  return best;
+}
+
+export interface RailInput {
+  rail1: readonly PathNode[];
+  rail2: readonly PathNode[];
+  closed: boolean;
+  /** Column tool: node i of rail 1 pairs with node i of rail 2. */
+  paired: boolean;
+  stitchAngles?: readonly [Point, Point][];
+}
+
+/**
+ * Prepares two rails for sewing. Rail 2 is aligned so its ends are nearest rail 1's ends
+ * (closed rails: run the same way round, started nearest rail 1's start). Plain two-rail
+ * satin is one piece walked by the same fraction of each rail; Column objects and stitch
+ * angle lines cut the rails at rungs into pieces.
+ */
+export function railColumn(input: RailInput): RailColumn | null {
+  let nodes2 = [...input.rail2];
+  if (input.rail1.length < 2 || nodes2.length < 2) return null;
+  const r1 = materializeDetailed(input.rail1, input.closed);
+  let r2 = materializeDetailed(nodes2, input.closed);
+  const s1 = r1.points[0]!;
+  const e1 = lastOf(r1.points);
+  if (input.closed) {
+    if (Math.sign(ringArea(r1.points)) !== Math.sign(ringArea(r2.points))) {
+      nodes2 = nodes2.reverse();
+      r2 = materializeDetailed(nodes2, true);
+    }
+  } else {
+    const straight = distance(s1, r2.points[0]!) + distance(e1, lastOf(r2.points));
+    const crossed = distance(s1, lastOf(r2.points)) + distance(e1, r2.points[0]!);
+    if (crossed < straight) {
+      nodes2 = nodes2.reverse();
+      r2 = materializeDetailed(nodes2, false);
+    }
+  }
+  const pts2 = input.closed && !input.paired ? restartRing(r2.points, s1) : r2.points;
+  const cum1 = cumulativeLengths(r1.points);
+  const cum2 = cumulativeLengths(pts2);
+  const L1 = lastOf(cum1);
+  const L2 = lastOf(cum2);
+
+  // Rungs as (arc on rail 1, arc on rail 2). Own rungs first: they win any conflict.
+  const own: [number, number][] = [];
+  if (input.paired) {
+    const n = Math.min(input.rail1.length, nodes2.length);
+    for (let i = 0; i < n; i++) own.push([cum1[r1.nodeIndex[i]!]!, cum2[r2.nodeIndex[i]!]!]);
+    if (input.closed) own.push([L1, L2]);
+  } else {
+    own.push([0, 0], [L1, L2]);
+  }
+  const accepted = [...own];
+  const at1 = (d: number) => pointAt(r1.points, d, cum1);
+  const at2 = (d: number) => pointAt(pts2, d, cum2);
+  for (const [p, q] of input.stitchAngles ?? []) {
+    const x = crossingOnRail(p, q, r1.points, cum1);
+    const y = crossingOnRail(p, q, pts2, cum2);
+    if (x === null || y === null) continue;
+    const conflict = accepted.some(
+      ([ox, oy]) => distance(at1(x), at1(ox)) < 0.05 || distance(at2(y), at2(oy)) < 0.05 || (x - ox) * (y - oy) < 0,
+    );
+    if (!conflict) accepted.push([x, y]);
+  }
+  accepted.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+
+  const pieces: RailPiece[] = [];
+  let u = 0;
+  for (let k = 1; k < accepted.length; k++) {
+    const [a0, b0] = accepted[k - 1]!;
+    const [a1, b1] = accepted[k]!;
+    const len = Math.max(a1 - a0, b1 - b0);
+    if (len <= EPS) continue;
+    pieces.push({ a0, a1, b0, b1, len, u0: u });
+    u += len;
+  }
+  if (!pieces.length) return null;
+  return { r1: r1.points, r2: pts2, cum1, cum2, pieces, length: u, piecewise: input.paired || accepted.length > own.length };
+}
+
+/** Column positions of the top-stitching rungs. */
+function railPositions(col: RailColumn, spacingAt: (u: number) => number): number[] {
+  if (!col.piecewise) return arcPositions(col.length, spacingAt);
+  // Column method: each piece divided into max(1, round(longer length / spacing)) steps,
+  // so the stitch angle turns smoothly from rung to rung.
+  const out: number[] = [];
+  for (const p of col.pieces) {
+    const steps = Math.max(1, roundHalfEven(p.len / spacingAt(p.u0)));
+    for (let k = 0; k < steps; k++) out.push(p.u0 + (p.len * k) / steps);
+  }
+  out.push(col.length);
+  return out;
+}
+
+/** A rail rung as a column Rung (side 0 on rail 1) with pull compensation and ragged edge. */
+function toRung(rr: RailRung, s: StitchSettings, sp: number): Rung {
+  const v = sub(rr.a, rr.b);
+  const w = Math.hypot(v[0], v[1]);
+  const n: Point = w > EPS ? [v[0] / w, v[1] / w] : [1, 0];
+  const half = w > EPS ? w / 2 + s.pullCompensation : 0;
+  return {
+    c: lerp(rr.a, rr.b, 0.5),
+    n,
+    left: half - raggedPull(s, rr.u, 0, w),
+    right: half - raggedPull(s, rr.u, 1, w),
+    d: rr.u,
+    sp,
+    corner: false,
+  };
+}
+
+/** Rungs of a two-rail satin or Column. */
+export function railRungs(col: RailColumn, s: StitchSettings, opts: ColumnOptions = {}): Rung[] {
+  const scale = opts.spacingScale ?? 1;
+  const spacingAt = (u: number) => {
+    const g = s.gradedDensity ? s.satinDensity + ((s.gradedEndDensity - s.satinDensity) * u) / col.length : s.satinDensity;
+    return Math.max(0.05, g * scale);
+  };
+  return railPositions(col, spacingAt).map((u) => toRung(railRungAt(col, u), s, spacingAt(u)));
+}
+
+/** Needle points of a two-rail satin (or Column object): stitches alternate rails. */
+export function twoRailStitches(input: RailInput, s: StitchSettings, opts: ColumnOptions = {}): Point[] {
+  const col = railColumn(input);
+  if (!col) return [];
+  return alternate(railRungs(col, s, opts), s, { shorten: s.columnShortening, split: s.autoSplit }, opts);
+}
+
+// ---- underlay for rails ----
+
+export type RailUnderlayKind = 'center' | 'edge' | 'zigzag' | 'double-zigzag';
+
+interface UnderlayParams {
+  spacing: number;
+  inset: number;
+  stitchLength: number;
+  startMargin: number;
+  endMargin: number;
+  zigzagAngle: number;
+}
+
+export function underlayParams(s: StitchSettings, layer: 1 | 2): UnderlayParams {
+  return layer === 1
+    ? {
+        spacing: s.underlaySpacing,
+        inset: s.underlayInset,
+        stitchLength: s.underlayStitchLength,
+        startMargin: s.underlayStartMargin,
+        endMargin: s.underlayEndMargin,
+        zigzagAngle: s.underlayZigzagAngle,
+      }
+    : {
+        spacing: s.underlay2Spacing,
+        inset: s.underlay2Inset,
+        stitchLength: s.underlay2StitchLength,
+        startMargin: s.underlay2StartMargin,
+        endMargin: s.underlay2EndMargin,
+        zigzagAngle: s.underlay2ZigzagAngle,
+      };
+}
+
+/** Shortens a rung by `inset` at both ends, never leaving it under 0.2 mm. */
+function insetRung(rr: RailRung, inset: number): RailRung {
+  const v = sub(rr.b, rr.a);
+  const w = Math.hypot(v[0], v[1]);
+  if (w <= 0.2) return rr;
+  const i = Math.min(inset, (w - 0.2) / 2);
+  return { a: add(rr.a, v, i / w), b: add(rr.b, v, -i / w), u: rr.u };
+}
+
+/**
+ * Underlay under a two-rail satin or Column: rungs every step along the longer rail, inset
+ * at both ends, between the start and end margins.
+ * - center: a run down the middle;
+ * - edge: down one side (rail 1), back up the other;
+ * - zigzag: across the rungs, then a centre run back;
+ * - double-zigzag: across the rungs, then a second zigzag back crossing the first.
+ * Zigzags slant by the underlay zigzag angle (90 = straight across).
+ */
+export function railUnderlay(col: RailColumn, s: StitchSettings, kind: RailUnderlayKind, layer: 1 | 2 = 1): Point[] {
+  const p = underlayParams(s, layer);
+  const u0 = Math.min(p.startMargin, col.length / 2);
+  const u1 = Math.max(col.length - p.endMargin, u0);
+  const span = u1 - u0;
+  const positions = (step: number) => (span > EPS ? arcPositions(span, Math.max(0.05, step)).map((u) => u0 + u) : [u0]);
+  const rung = (u: number) => insetRung(railRungAt(col, u), p.inset);
+  const middle = (u: number): Point => {
+    const r = rung(u);
+    return lerp(r.a, r.b, 0.5);
+  };
+  const runs = positions(p.stitchLength);
+  const back = [...runs].reverse();
+
+  if (kind === 'center') return runs.map(middle);
+  if (kind === 'edge') return [...runs.map((u) => rung(u).a), ...back.map((u) => rung(u).b)];
+
+  // Slant: the rail-2 end of each zigzag stitch moves along by width / tan(angle).
+  const rad = (p.zigzagAngle * Math.PI) / 180;
+  const cot = Math.abs(Math.sin(rad)) > EPS ? Math.cos(rad) / Math.sin(rad) : 0;
+  const zigzag = (us: number[], startSide: number, dir: 1 | -1): Point[] =>
+    us.map((u, k) => {
+      const r = rung(u);
+      if ((k + startSide) % 2 === 0) return r.a;
+      const shifted = Math.min(u1, Math.max(u0, u + dir * distance(r.a, r.b) * cot));
+      return rung(shifted).b;
+    });
+  const zz = positions(p.spacing);
+  const forward = zigzag(zz, 0, 1);
+  if (kind === 'zigzag') return [...forward, ...back.map(middle)];
+  return [...forward, ...zigzag([...zz].reverse(), zz.length % 2, -1)];
 }

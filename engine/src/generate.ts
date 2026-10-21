@@ -1,7 +1,7 @@
 // Picks the generator per stitch type; underlay.
 
 import type { StitchObject } from './document';
-import { columnStitches } from './columns';
+import { columnStitches, twoRailStitches } from './columns';
 import { materializePath } from './path';
 import { raisedSatin, runningStitch } from './stitchlib';
 import type { Motif, Point, StitchSettings, StitchType } from './types';
@@ -40,6 +40,11 @@ export function generateTopStitching(o: StitchObject, _motifs: readonly Motif[])
     case 'zigzag':
     case 'e_stitch':
       return columnStitches(o.points, o.closed, s, s.stitchType);
+    case 'radial_satin':
+      return twoRailStitches(
+        { rail1: o.points, rail2: o.rail2, closed: o.closed, paired: s.pairedRails, stitchAngles: o.stitchAngles },
+        s,
+      );
     default:
       return []; // remaining generators arrive in later steps
   }
