@@ -492,7 +492,11 @@ export function flattenArc(
 
 // ---- node paths ----
 
-/** Unit tangent at a curve node: along the line from its previous to its next node. */
+/**
+ * Unit tangent at a curve node: along the line from its previous to its next node (on evenly
+ * spaced points this is the circle's tangent; with a short and a long neighbour it follows
+ * the long one, so a straight run into a tight bend stays straight).
+ */
 function curveTangent(nodes: readonly PathNode[], j: number, closed: boolean, chord: Point): Point {
   const n = nodes.length;
   if (!closed && (j === 0 || j === n - 1)) return chord;
@@ -502,35 +506,28 @@ function curveTangent(nodes: readonly PathNode[], j: number, closed: boolean, ch
 }
 
 /**
- * Unit tangents leaving node i and arriving at node i+1. A curve node (not an open end) points
- * along its neighbours' line; a corner or open end beside a curve node mirrors the curve
- * node's tangent across the chord, which makes the segment a circular arc between them.
+ * Unit tangents leaving node i and arriving at node i+1: curve nodes (not open ends) take
+ * their curve tangent; corners and open ends leave along the chord, so they never hook.
  */
 function segmentTangents(nodes: readonly PathNode[], i: number, closed: boolean, chord: Point): [Point, Point] {
   const n = nodes.length;
   const j = (i + 1) % n;
   const curveAt = (k: number) => nodes[k]!.type === 'curve' && (closed || (k !== 0 && k !== n - 1));
-  const mirror = (t: Point): Point => {
-    const d = 2 * (t[0] * chord[0] + t[1] * chord[1]);
-    return [d * chord[0] - t[0], d * chord[1] - t[1]];
-  };
-  const a = curveAt(i) ? curveTangent(nodes, i, closed, chord) : null;
-  const b = curveAt(j) ? curveTangent(nodes, j, closed, chord) : null;
-  if (a && b) return [a, b];
-  if (a) return [a, mirror(a)];
-  if (b) return [mirror(b), b];
-  return [chord, chord];
+  return [curveAt(i) ? curveTangent(nodes, i, closed, chord) : chord, curveAt(j) ? curveTangent(nodes, j, closed, chord) : chord];
 }
+
+/** Largest tangent-to-chord angle the handle length follows; beyond it handles stop growing. */
+const HANDLE_ANGLE_CAP = (60 * Math.PI) / 180;
 
 /**
  * Bezier handle length for a segment of chord length len whose end tangent makes angle phi
  * with the chord: len / (3 cos^2(phi / 2)). For points on one circle this is the classic cubic
- * arc (4/3 tan(alpha/4) r), so evenly spaced curve nodes make a circle; phi is capped at 100
- * degrees so handles stay sensible on sharp turns.
+ * arc (4/3 tan(alpha/4) r), so evenly spaced curve nodes make a circle; phi is capped at 60
+ * degrees so sharp turns and uneven spacing don't balloon into loops.
  */
 function handleLength(len: number, tangent: Point, chord: Point): number {
   const cos = Math.max(-1, Math.min(1, tangent[0] * chord[0] + tangent[1] * chord[1]));
-  const phi = Math.min(Math.acos(cos), (100 * Math.PI) / 180);
+  const phi = Math.min(Math.acos(cos), HANDLE_ANGLE_CAP);
   const c = Math.cos(phi / 2);
   return len / (3 * c * c);
 }

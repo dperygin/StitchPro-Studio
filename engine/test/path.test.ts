@@ -242,7 +242,7 @@ describe('materializePath', () => {
     expect(materializePath([], false)).toEqual([]);
   });
 
-  it('makes a circle from four evenly spaced curve nodes, and an arc from three points', () => {
+  it('makes a circle from four (or more) evenly spaced curve nodes', () => {
     const r = 10;
     const four = [pathNode(r, 0, 'curve'), pathNode(0, r, 'curve'), pathNode(-r, 0, 'curve'), pathNode(0, -r, 'curve')];
     const circle = materializePath(four, true, 0.1);
@@ -252,9 +252,6 @@ describe('materializePath', () => {
       const ring = Array.from({ length: k }, (_, i) => pathNode(r * Math.cos((2 * Math.PI * i) / k), r * Math.sin((2 * Math.PI * i) / k), 'curve'));
       for (const p of materializePath(ring, true, 0.1)) expect(Math.abs(Math.hypot(p[0], p[1]) - r)).toBeLessThan(0.003);
     }
-    // Corner - curve - corner on a circle: an arc through all three.
-    const arc = materializePath([pathNode(r, 0), pathNode(0, r, 'curve'), pathNode(-r, 0)], false, 0.1);
-    for (const p of arc) expect(Math.hypot(p[0], p[1])).toBeCloseTo(r, 1);
     // Corners stay corners: two corners are a straight line.
     expect(materializePath([pathNode(0, 0), pathNode(10, 0)], false)).toEqual([[0, 0], [10, 0]]);
   });
@@ -269,17 +266,32 @@ describe('materializePath', () => {
     pts.forEach((p, i) => close(p, [10 - pts[n - 1 - i]![0], pts[n - 1 - i]![1]], 6));
   });
 
-  it('keeps corner nodes sharp: the curve beside a corner is an arc starting there', () => {
+  it('keeps corner nodes sharp: a curve leaves a corner along its chord', () => {
     const pts = materializePath([corner(0, 0), corner(10, 0), curve(10, 10), corner(0, 20)], false);
     const k = pts.findIndex((p) => p[0] === 10 && p[1] === 0);
     const next = pts[k + 1]!;
-    // Arriving along +x, leaving mostly downwards: still a sharp corner, not smoothed.
-    const out: [number, number] = [next[0] - 10, next[1]];
-    expect(out[1]).toBeGreaterThan(Math.abs(out[0]));
-    // The stretch to the curve node is a circular arc: it bulges past x = 10, by little.
-    const stretch = pts.slice(k, pts.findIndex((p) => p[0] === 10 && p[1] === 10) + 1);
-    expect(Math.max(...stretch.map((p) => p[0]))).toBeGreaterThan(10.5);
-    expect(Math.max(...stretch.map((p) => p[0]))).toBeLessThan(13);
+    // Chord from (10,0) to (10,10) is straight down; the first step follows it (no hook).
+    expect(Math.abs(next[0] - 10)).toBeLessThan(0.02);
+    expect(next[1]).toBeGreaterThan(0);
+  });
+
+  it('never loops past its end points or far outside its nodes', () => {
+    const layouts = [
+      [corner(5, 60), curve(25, 20), curve(40, 75), curve(48, 30), curve(90, 55), corner(95, 20)],
+      [corner(5, 50), curve(30, 50), curve(34, 46), curve(36, 40), curve(90, 15), corner(95, 90)],
+      [corner(70, 10), curve(30, 18), curve(25, 45), curve(70, 55), curve(75, 82), corner(20, 90)],
+      [corner(10, 80), curve(50, 15), corner(90, 80)],
+    ];
+    for (const nodes of layouts) {
+      const xs = nodes.map((n) => n.x);
+      const ys = nodes.map((n) => n.y);
+      for (const [x, y] of materializePath(nodes, false)) {
+        expect(x).toBeGreaterThan(Math.min(...xs) - 8);
+        expect(x).toBeLessThan(Math.max(...xs) + 8);
+        expect(y).toBeGreaterThan(Math.min(...ys) - 8);
+        expect(y).toBeLessThan(Math.max(...ys) + 8);
+      }
+    }
   });
 
   it('closes curved paths smoothly through every node', () => {
