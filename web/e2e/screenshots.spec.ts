@@ -53,3 +53,15 @@ test('tools menu', async ({ page }) => {
   await page.getByTestId('menu-tools').click();
   await expect(page.getByRole('menu')).toHaveScreenshot('tools-menu.png');
 });
+
+test('drawing with curve nodes shows the curve before finishing', async ({ page }) => {
+  await page.locator('[data-command="draw.open"]').first().click();
+  const box = (await page.getByTestId('design-canvas').boundingBox())!;
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await page.mouse.click(cx - 160, cy + 60);
+  await page.mouse.click(cx - 80, cy - 80, { button: 'right' });
+  await page.mouse.click(cx + 20, cy + 60, { button: 'right' });
+  await page.mouse.move(cx + 140, cy - 60, { steps: 4 });
+  await expect(page.getByTestId('design-canvas')).toHaveScreenshot('drawing-curves.png');
+});

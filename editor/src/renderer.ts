@@ -6,7 +6,7 @@
 // rulers). Each object's stitches become a Path2D once per version. At most one redraw per
 // animation frame.
 
-import { JUMP_MARK, type MarkKind, type Point, type StitchObject } from '@stitchpro/engine';
+import { JUMP_MARK, materializePath, pathNode, type MarkKind, type PathNode, type Point, type StitchObject } from '@stitchpro/engine';
 import { RULER_PX, SIM_THREAD_MM } from './constants';
 import type { ChangeKind, Editor } from './editor';
 import { unionBox, type Box } from './hittest';
@@ -383,18 +383,24 @@ export class Renderer {
       ctx.stroke();
     };
     if (t.line) line(t.line);
-    if (t.rail?.length) {
-      line(t.rail.map((n): Point => [n.x, n.y]));
-      for (const n of t.rail) ctx.fillRect(n.x - size, n.y - size, 2 * size, 2 * size);
-    }
-    if (t.nodes?.length) {
-      const pts: Point[] = t.nodes.map((n) => [n.x, n.y]);
-      line(t.closed ? [...pts, pts[0]!] : t.cursor ? [...pts, t.cursor] : pts);
-      for (const n of t.nodes) {
+    // Shapes being digitized are drawn as they will be made: curves through curve nodes, with
+    // the pointer as the next node so a curve bends live; corner nodes square, curve nodes round.
+    const marks = (nodes: readonly PathNode[]) => {
+      for (const n of nodes) {
         ctx.beginPath();
-        ctx.rect(n.x - size, n.y - size, 2 * size, 2 * size);
+        if (n.type === 'curve') ctx.arc(n.x, n.y, size, 0, Math.PI * 2);
+        else ctx.rect(n.x - size, n.y - size, 2 * size, 2 * size);
         ctx.fill();
       }
+    };
+    if (t.rail?.length) {
+      line(materializePath(t.rail, false));
+      marks(t.rail);
+    }
+    if (t.nodes?.length) {
+      const next = t.cursor && !t.closed ? [...t.nodes, pathNode(t.cursor[0], t.cursor[1])] : t.nodes;
+      line(materializePath(next, !!t.closed));
+      marks(t.nodes);
     }
   }
 
