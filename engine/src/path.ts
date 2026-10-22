@@ -492,15 +492,47 @@ export function flattenArc(
 
 // ---- node paths ----
 
-/** Unit tangent at node j for a segment whose chord direction is `chord`. */
-function nodeTangent(nodes: readonly PathNode[], j: number, closed: boolean, chord: Point): Point {
-  const node = nodes[j]!;
-  if (node.type === 'corner') return chord; // corners stay sharp
+/** Unit tangent at a curve node: along the line from its previous to its next node. */
+function curveTangent(nodes: readonly PathNode[], j: number, closed: boolean, chord: Point): Point {
   const n = nodes.length;
   if (!closed && (j === 0 || j === n - 1)) return chord;
   const prev = nodes[(j - 1 + n) % n]!;
   const next = nodes[(j + 1) % n]!;
-  return unit(next.x - prev.x, next.y - prev.y) ?? chord; // Catmull-Rom direction
+  return unit(next.x - prev.x, next.y - prev.y) ?? chord;
+}
+
+/**
+ * Unit tangents leaving node i and arriving at node i+1. A curve node (not an open end) points
+ * along its neighbours' line; a corner or open end beside a curve node mirrors the curve
+ * node's tangent across the chord, which makes the segment a circular arc between them.
+ */
+function segmentTangents(nodes: readonly PathNode[], i: number, closed: boolean, chord: Point): [Point, Point] {
+  const n = nodes.length;
+  const j = (i + 1) % n;
+  const curveAt = (k: number) => nodes[k]!.type === 'curve' && (closed || (k !== 0 && k !== n - 1));
+  const mirror = (t: Point): Point => {
+    const d = 2 * (t[0] * chord[0] + t[1] * chord[1]);
+    return [d * chord[0] - t[0], d * chord[1] - t[1]];
+  };
+  const a = curveAt(i) ? curveTangent(nodes, i, closed, chord) : null;
+  const b = curveAt(j) ? curveTangent(nodes, j, closed, chord) : null;
+  if (a && b) return [a, b];
+  if (a) return [a, mirror(a)];
+  if (b) return [mirror(b), b];
+  return [chord, chord];
+}
+
+/**
+ * Bezier handle length for a segment of chord length len whose end tangent makes angle phi
+ * with the chord: len / (3 cos^2(phi / 2)). For points on one circle this is the classic cubic
+ * arc (4/3 tan(alpha/4) r), so evenly spaced curve nodes make a circle; phi is capped at 100
+ * degrees so handles stay sensible on sharp turns.
+ */
+function handleLength(len: number, tangent: Point, chord: Point): number {
+  const cos = Math.max(-1, Math.min(1, tangent[0] * chord[0] + tangent[1] * chord[1]));
+  const phi = Math.min(Math.acos(cos), (100 * Math.PI) / 180);
+  const c = Math.cos(phi / 2);
+  return len / (3 * c * c);
 }
 
 /** One dense piece per node-to-node segment, each with both of its end points. */
@@ -523,10 +555,11 @@ export function materializeSegments(nodes: readonly PathNode[], closed: boolean,
       out.push([A, B]);
       continue;
     }
-    const tA = nodeTangent(nodes, i, closed, chord);
-    const tB = nodeTangent(nodes, (i + 1) % n, closed, chord);
-    const c1: Point = [A[0] + (tA[0] * len) / 3, A[1] + (tA[1] * len) / 3];
-    const c2: Point = [B[0] - (tB[0] * len) / 3, B[1] - (tB[1] * len) / 3];
+    const [tA, tB] = segmentTangents(nodes, i, closed, chord);
+    const hA = handleLength(len, tA, chord);
+    const hB = handleLength(len, tB, chord);
+    const c1: Point = [A[0] + tA[0] * hA, A[1] + tA[1] * hA];
+    const c2: Point = [B[0] - tB[0] * hB, B[1] - tB[1] * hB];
     out.push(flattenBezier([A, c1, c2, B], resolution));
   }
   return out;

@@ -242,6 +242,23 @@ describe('materializePath', () => {
     expect(materializePath([], false)).toEqual([]);
   });
 
+  it('makes a circle from four evenly spaced curve nodes, and an arc from three points', () => {
+    const r = 10;
+    const four = [pathNode(r, 0, 'curve'), pathNode(0, r, 'curve'), pathNode(-r, 0, 'curve'), pathNode(0, -r, 'curve')];
+    const circle = materializePath(four, true, 0.1);
+    for (const p of circle) expect(Math.hypot(p[0], p[1])).toBeCloseTo(r, 2); // within 0.005 mm
+    // Six, eight: still a circle.
+    for (const k of [6, 8]) {
+      const ring = Array.from({ length: k }, (_, i) => pathNode(r * Math.cos((2 * Math.PI * i) / k), r * Math.sin((2 * Math.PI * i) / k), 'curve'));
+      for (const p of materializePath(ring, true, 0.1)) expect(Math.abs(Math.hypot(p[0], p[1]) - r)).toBeLessThan(0.003);
+    }
+    // Corner - curve - corner on a circle: an arc through all three.
+    const arc = materializePath([pathNode(r, 0), pathNode(0, r, 'curve'), pathNode(-r, 0)], false, 0.1);
+    for (const p of arc) expect(Math.hypot(p[0], p[1])).toBeCloseTo(r, 1);
+    // Corners stay corners: two corners are a straight line.
+    expect(materializePath([pathNode(0, 0), pathNode(10, 0)], false)).toEqual([[0, 0], [10, 0]]);
+  });
+
   it('curves through a curve node with a Catmull-Rom tangent', () => {
     const pts = materializePath([corner(0, 0), curve(5, 5), corner(10, 0)], false);
     expect(pts).toContainEqual([5, 5]);
@@ -252,13 +269,17 @@ describe('materializePath', () => {
     pts.forEach((p, i) => close(p, [10 - pts[n - 1 - i]![0], pts[n - 1 - i]![1]], 6));
   });
 
-  it('keeps corner nodes sharp: a curve leaves a corner along its chord', () => {
+  it('keeps corner nodes sharp: the curve beside a corner is an arc starting there', () => {
     const pts = materializePath([corner(0, 0), corner(10, 0), curve(10, 10), corner(0, 20)], false);
     const k = pts.findIndex((p) => p[0] === 10 && p[1] === 0);
     const next = pts[k + 1]!;
-    // Chord from (10,0) to (10,10) is straight down; the first step follows it.
-    expect(Math.abs(next[0] - 10)).toBeLessThan(0.02);
-    expect(next[1]).toBeGreaterThan(0);
+    // Arriving along +x, leaving mostly downwards: still a sharp corner, not smoothed.
+    const out: [number, number] = [next[0] - 10, next[1]];
+    expect(out[1]).toBeGreaterThan(Math.abs(out[0]));
+    // The stretch to the curve node is a circular arc: it bulges past x = 10, by little.
+    const stretch = pts.slice(k, pts.findIndex((p) => p[0] === 10 && p[1] === 10) + 1);
+    expect(Math.max(...stretch.map((p) => p[0]))).toBeGreaterThan(10.5);
+    expect(Math.max(...stretch.map((p) => p[0]))).toBeLessThan(13);
   });
 
   it('closes curved paths smoothly through every node', () => {
