@@ -345,6 +345,19 @@ export class Renderer {
       ctx.strokeRect(box.minX, box.minY, box.maxX - box.minX, box.maxY - box.minY);
       ctx.setLineDash([]);
     }
+    // Stitch angle lines of the selected objects.
+    ctx.setLineDash([6 * px, 3 * px]);
+    ctx.lineWidth = 1.5 * px;
+    for (const o of editor.selectedObjects()) {
+      for (const [a, b] of o.stitchAngles) {
+        ctx.beginPath();
+        ctx.moveTo(a[0], a[1]);
+        ctx.lineTo(b[0], b[1]);
+        ctx.stroke();
+      }
+    }
+    ctx.setLineDash([]);
+    ctx.lineWidth = px;
     // Nodes of the selected objects.
     const size = 3 * this.ratio * px;
     ctx.fillStyle = theme.node;

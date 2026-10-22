@@ -678,25 +678,37 @@ class AngleTool extends BaseTool {
   private start: Point | null = null;
   private end: Point | null = null;
 
+  /** Where the drag started, in screen pixels (to find the object under it). */
+  private down: { x: number; y: number } | null = null;
+
+  constructor(editor: Editor) {
+    super(editor);
+    editor.setStatus('Stitch angle: drag a line across the object in the direction the stitches should lie (Shift adds another line)');
+  }
+
   override pointerDown(e: PointerInput): void {
     this.start = this.editor.toDesign(e);
     this.end = this.start;
+    this.down = { x: e.x, y: e.y };
   }
 
   override pointerMove(e: PointerInput): void {
-    if (this.start) this.end = this.editor.toDesign(e);
+    if (!this.start) return;
+    this.end = this.editor.toDesign(e);
+    this.editor.changed('overlay');
   }
 
   override pointerUp(e: PointerInput): void {
     const ed = this.editor;
     const a = this.start;
-    this.start = null;
+    const down = this.down;
+    this.start = this.down = null;
+    ed.changed('overlay');
     if (!a) return;
     const b = ed.toDesign(e);
-    const target = ed.selectedObjects()[0];
-    if (!target || Math.hypot(b[0] - a[0], b[1] - a[1]) < 1) return;
-    ed.replace({ ...target, stitchAngles: [...target.stitchAngles, [a, b]] });
-    ed.commit('Stitch angle');
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 1) return;
+    // Shift adds a line (turning stitches); a plain drag sets the one angle.
+    ed.setStitchAngle([a, b], !!e.shift, down ?? undefined);
   }
 
   override cancel(): void {

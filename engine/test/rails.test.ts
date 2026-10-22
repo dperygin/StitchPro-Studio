@@ -124,7 +124,25 @@ describe('stitch angle lines', () => {
     expect(one.piecewise).toBe(true); // segments are extended: the infinite line crosses both rails
     expect(railColumn(input(r1, r2, { stitchAngles: [[[0.02, -1], [0.02, 5]]] }))!.piecewise).toBe(false);
     const crossing = railColumn(input(r1, r2, { stitchAngles: [[[2, -1], [2, 5]], [[5, -1], [-1, 5]]] }))!;
-    expect(crossing.pieces).toHaveLength(2); // the second line crosses the first and is dropped
+    // The second line crosses the first and is dropped: away from the ends every rung keeps the
+    // first (vertical) line's angle.
+    for (const r of railRungs(crossing, settings({ pullCompensation: 0 }))) {
+      if (r.c[0] > 1 && r.c[0] < 9) expect(rungEnd(r, 0)[0]).toBeCloseTo(rungEnd(r, 1)[0], 6);
+    }
+  });
+
+  it('hold their angle past the first and last line (fanning only at the ends)', () => {
+    const long = [corner(0, 0), corner(30, 0)];
+    const col = railColumn(input(long, [corner(0, 6), corner(30, 6)], { stitchAngles: [[[10, -3], [20, 9]]] }))!;
+    const slant = (r: ReturnType<typeof railRungs>[number]) => rungEnd(r, 1)[0] - rungEnd(r, 0)[0];
+    const rungs = railRungs(col, settings({ pullCompensation: 0 }));
+    // The line runs 10 across for 12 down: 5 across over the 6 mm column, everywhere but the ends.
+    const held = rungs.filter((r) => r.c[0] > 4 && r.c[0] < 26);
+    expect(held.length).toBeGreaterThan(50);
+    for (const r of held) expect(slant(r)).toBeCloseTo(5, 1);
+    // The ends still meet the column's end edges.
+    expect(slant(rungs[0]!)).toBeCloseTo(0, 6);
+    expect(slant(rungs.at(-1)!)).toBeCloseTo(0, 6);
   });
 
   it('lose to the Column own rungs', () => {

@@ -619,6 +619,9 @@ interface RailPiece {
   u0: number;
 }
 
+/** Spacing of the rungs that hold an angle line's direction past the first and last lines, mm. */
+const HOLD_STEP = 0.5;
+
 /** Two rails walked together: a column position u maps to one point on each rail. */
 export interface RailColumn {
   r1: Point[];
@@ -726,14 +729,40 @@ export function railColumn(input: RailInput): RailColumn | null {
   const accepted = [...own];
   const at1 = (d: number) => pointAt(r1.points, d, cum1);
   const at2 = (d: number) => pointAt(pts2, d, cum2);
-  for (const [p, q] of input.stitchAngles ?? []) {
-    const x = crossingOnRail(p, q, r1.points, cum1);
-    const y = crossingOnRail(p, q, pts2, cum2);
-    if (x === null || y === null) continue;
+  const tryAdd = (x: number, y: number) => {
     const conflict = accepted.some(
       ([ox, oy]) => distance(at1(x), at1(ox)) < 0.05 || distance(at2(y), at2(oy)) < 0.05 || (x - ox) * (y - oy) < 0,
     );
     if (!conflict) accepted.push([x, y]);
+    return !conflict;
+  };
+  const angleRungs: [number, number][] = [];
+  for (const [p, q] of input.stitchAngles ?? []) {
+    const x = crossingOnRail(p, q, r1.points, cum1);
+    const y = crossingOnRail(p, q, pts2, cum2);
+    if (x !== null && y !== null && tryAdd(x, y)) angleRungs.push([x, y]);
+  }
+  // Past the first and last angle lines the stitches keep that line's angle (an incline holds
+  // until the next one), fanning only where the column's end edge forces it.
+  if (angleRungs.length && !input.closed && !input.paired) {
+    angleRungs.sort((p, q) => p[0] - q[0]);
+    const hold = (rung: [number, number], toEnd: boolean) => {
+      const dir = sub(at2(rung[1]), at1(rung[0]));
+      const [lo1, hi1] = toEnd ? [rung[0], L1] : [0, rung[0]];
+      const [lo2, hi2] = toEnd ? [rung[1], L2] : [0, rung[1]];
+      for (const d of arcPositions(hi1 - lo1, HOLD_STEP).slice(1, -1)) {
+        const p = at1(lo1 + d);
+        const y = crossingOnRail(p, add(p, dir), pts2, cum2);
+        if (y !== null && y > lo2 && y < hi2) tryAdd(lo1 + d, y);
+      }
+      for (const e of arcPositions(hi2 - lo2, HOLD_STEP).slice(1, -1)) {
+        const p = at2(lo2 + e);
+        const x = crossingOnRail(add(p, dir, -1), p, r1.points, cum1);
+        if (x !== null && x > lo1 && x < hi1) tryAdd(x, lo2 + e);
+      }
+    };
+    hold(angleRungs[0]!, false);
+    hold(angleRungs[angleRungs.length - 1]!, true);
   }
   accepted.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
 

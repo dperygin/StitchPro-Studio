@@ -3,6 +3,7 @@
 import {
   distanceToPolyline,
   isAreaType,
+  isColumnType,
   materializePath,
   pointInRegion,
   type Point,
@@ -25,6 +26,10 @@ export interface Shape {
   closed: boolean;
   /** Clicking inside counts (closed fills). */
   solid: boolean;
+  /** Two-rail satins and Columns: the band between the rails counts as inside. */
+  band: boolean;
+  /** Satin, zigzag and E stitch columns: clicks within half the column width count. */
+  halfWidth: number;
   box: Box;
 }
 
@@ -66,6 +71,8 @@ export class ShapeCache {
       rail2,
       closed: o.closed,
       solid: o.closed && isAreaType(o.settings.stitchType),
+      band: o.settings.stitchType === 'radial_satin' && rail2.length > 1 && outline.length > 1,
+      halfWidth: isColumnType(o.settings.stitchType) ? o.settings.satinWidth / 2 : 0,
       box: all.length ? boxOf(all) : { minX: 0, minY: 0, maxX: 0, maxY: 0 },
     };
     this.entries.set(o.id, { version: o.version, shape });
@@ -78,13 +85,18 @@ export class ShapeCache {
   }
 }
 
-/** Distance from p to an object's lines (outline, holes, second rail); 0 inside a solid shape. */
+/** Distance from p to an object's lines (outline, holes, second rail); 0 inside a solid shape or a column. */
 export function distanceToShape(shape: Shape, p: Point): number {
   if (shape.solid && shape.outline.length > 2 && pointInRegion([{ outer: shape.outline, holes: shape.holes }], p) !== 'outside') return 0;
+  if (shape.band) {
+    // Open: the ring rail 1 then rail 2 backwards; closed: between the two rings (even-odd).
+    const region = shape.closed ? [{ outer: shape.outline, holes: [shape.rail2] }] : [{ outer: [...shape.outline, ...[...shape.rail2].reverse()], holes: [] }];
+    if (pointInRegion(region, p) !== 'outside') return 0;
+  }
   let d = shape.outline.length === 1 ? Math.hypot(p[0] - shape.outline[0]![0], p[1] - shape.outline[0]![1]) : distanceToPolyline(p, shape.outline);
   for (const h of shape.holes) d = Math.min(d, distanceToPolyline(p, h));
   if (shape.rail2.length) d = Math.min(d, distanceToPolyline(p, shape.rail2));
-  return d;
+  return Math.max(0, d - shape.halfWidth);
 }
 
 /** The topmost (last sewn) visible, unlocked object within tol mm of p. */

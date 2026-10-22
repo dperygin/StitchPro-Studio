@@ -3,6 +3,8 @@
 
 import {
   StitchCache,
+  STITCH_TYPE_LABELS,
+  isAreaType,
   applyClosestJoin,
   DEFAULT_LETTER,
   POOR_MATCH_DELTA_E,
@@ -547,6 +549,33 @@ export class Editor {
     setPickMode(this.tool, mode);
     const what = { entry: 'the entry point', exit: 'the exit point', colour: 'an object to take its colour', hoop: 'the hoop-out point' }[mode];
     this.setStatus(`Click ${what}`);
+  }
+
+  /**
+   * Stitch angle: a line dragged across an object. On fills it sets the fill angle (the line is
+   * kept as the only angle line); on two-rail satins and Columns it becomes the only angle line,
+   * which the stitches hold until the column's ends. With `add` (Shift) the line is added to the
+   * existing ones instead: the rows or stitches then turn from line to line. The object is the
+   * selected one, or the one under the line's start. Returns false when nothing took it.
+   */
+  setStitchAngle(line: [Point, Point], add = false, at?: { x: number; y: number }): boolean {
+    const target = this.selectedObjects()[0] ?? (at ? this.objectAt(at) : null);
+    if (!target) {
+      this.setStatus('Select an object first, then drag its stitch angle');
+      return false;
+    }
+    const t = target.settings.stitchType;
+    if (!isAreaType(t) && t !== 'radial_satin') {
+      this.setStatus(`${STITCH_TYPE_LABELS[t]} stitches always cross the line they follow; stitch angles apply to fills, Two-Rail Satins and Columns`);
+      return false;
+    }
+    const lines: [Point, Point][] = add ? [...target.stitchAngles, line] : [line];
+    const angle = Math.round(((Math.atan2(line[1][1] - line[0][1], line[1][0] - line[0][0]) * 180) / Math.PI) * 10) / 10;
+    const settings = isAreaType(t) && lines.length === 1 ? { ...target.settings, fillAngle: angle } : target.settings;
+    this.replace({ ...target, settings, stitchAngles: lines });
+    this.commit('Stitch angle');
+    this.setStatus(lines.length === 1 ? `Stitch angle ${angle}°` : `${lines.length} stitch angle lines: the stitches turn from line to line (Shift adds, a plain drag starts over)`);
+    return true;
   }
 
   /** Starts digitizing in a mode. */
@@ -1491,7 +1520,11 @@ export class Editor {
   updateSelectedSettings(patch: Partial<StitchSettings>, soon = false): void {
     const sel = this.selectedObjects();
     if (!sel.length) return;
-    for (const o of sel) this.replace({ ...o, settings: { ...o.settings, ...patch } });
+    for (const o of sel) {
+      // A single stitch angle line decides a fill's angle: a typed angle replaces it.
+      const dropLine = patch.fillAngle !== undefined && o.stitchAngles.length === 1 && isAreaType(o.settings.stitchType);
+      this.replace({ ...o, settings: { ...o.settings, ...patch }, ...(dropLine ? { stitchAngles: [] } : {}) });
+    }
     if (soon) this.commitSoon('Properties');
     else this.commit('Properties');
   }
