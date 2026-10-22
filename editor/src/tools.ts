@@ -23,6 +23,8 @@ export interface ToolOverlay {
   rail?: PathNode[];
   /** Draw `nodes` as a closed outline. */
   closed?: boolean;
+  /** A Column being digitized: its two edges, and which edge the next click lands on. */
+  column?: { a: PathNode[]; b: PathNode[]; next: 'a' | 'b' };
 }
 
 export interface Tool {
@@ -232,8 +234,24 @@ class DrawTool extends BaseTool {
     if (e.button === 1) return;
     const [x, y] = this.place(e);
     this.nodes.push(pathNode(x, y, e.button === 2 ? 'curve' : 'corner'));
-    ed.setStatus(`${this.nodes.length} node${this.nodes.length === 1 ? '' : 's'} - Enter or double click to finish, Esc to cancel`);
+    if (this.columnMode) {
+      const pairs = Math.floor(this.nodes.length / 2);
+      ed.setStatus(
+        this.nodes.length % 2
+          ? 'Now click the other edge, opposite this point'
+          : `${pairs} pair${pairs === 1 ? '' : 's'} - click the next point on the first edge; Enter finishes, Backspace removes the last click`,
+      );
+    } else ed.setStatus(`${this.nodes.length} node${this.nodes.length === 1 ? '' : 's'} - Enter or double click to finish, Esc to cancel`);
     ed.changed('overlay');
+  }
+
+  /**
+   * Column: clicks go back and forth across the column, one point on each edge per pair; each
+   * pair sets the width and the stitch direction there.
+   */
+  private get columnMode(): boolean {
+    const m = this.editor.drawMode;
+    return m.stitchType === 'radial_satin' && !!m.paired && !m.hole;
   }
 
   override keyDown(e: KeyInput): boolean {
@@ -269,7 +287,8 @@ class DrawTool extends BaseTool {
   private place(e: PointerInput): Point {
     const ed = this.editor;
     const p = ed.toDesign(e);
-    const prev = this.nodes[this.nodes.length - 1];
+    // Ctrl constrains from the previous point on the same edge (Column clicks alternate edges).
+    const prev = this.nodes[this.nodes.length - (this.columnMode ? 2 : 1)];
     if (e.ctrl && prev) {
       const dx = p[0] - prev.x;
       const dy = p[1] - prev.y;
@@ -290,6 +309,7 @@ class DrawTool extends BaseTool {
     const nodes = this.nodes;
     this.nodes = [];
     const mode = ed.drawMode;
+    if (this.columnMode) return this.finishColumn(nodes);
     if (mode.stitchType === 'radial_satin' && !mode.hole) return this.finishRail(nodes);
     if (mode.hole) return this.finishHole(nodes);
     if (nodes.length < (closed ? 3 : 2)) {
@@ -304,7 +324,25 @@ class DrawTool extends BaseTool {
     return o;
   }
 
-  /** Two-rail satin and Column: the first Enter ends rail 1, the second makes the object. */
+  /** Column: alternate clicks become the two edges (an unpaired last click is dropped). */
+  private finishColumn(clicks: PathNode[]): StitchObject | null {
+    const ed = this.editor;
+    const pairs = Math.floor(clicks.length / 2);
+    if (pairs < 2) {
+      this.nodes = clicks;
+      ed.setStatus('A column needs at least 2 pairs of points (click one edge, then the other)');
+      return null;
+    }
+    const a = clicks.filter((_, i) => i % 2 === 0).slice(0, pairs);
+    const b = clicks.filter((_, i) => i % 2 === 1);
+    const o = ed.addObject(ed.newObject({ points: a, rail2: b, closed: false }));
+    ed.select(o.id);
+    ed.commit('Draw');
+    ed.setStatus(`Added ${o.name}`);
+    return o;
+  }
+
+  /** Two-rail satin: the first Enter ends rail 1, the second makes the object. */
   private finishRail(nodes: PathNode[]): StitchObject | null {
     const ed = this.editor;
     if (nodes.length < 2) {
@@ -349,7 +387,14 @@ class DrawTool extends BaseTool {
   }
 
   override overlay(): ToolOverlay {
-    return { nodes: this.nodes, cursor: this.cursor ?? this.editor.pointer ?? undefined, rail: this.rail1 ?? undefined };
+    const cursor = this.cursor ?? this.editor.pointer ?? undefined;
+    if (this.columnMode) {
+      return {
+        cursor,
+        column: { a: this.nodes.filter((_, i) => i % 2 === 0), b: this.nodes.filter((_, i) => i % 2 === 1), next: this.nodes.length % 2 ? 'b' : 'a' },
+      };
+    }
+    return { nodes: this.nodes, cursor, rail: this.rail1 ?? undefined };
   }
 }
 

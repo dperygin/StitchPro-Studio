@@ -402,6 +402,20 @@ export class Renderer {
       line(materializePath(next, !!t.closed));
       marks(t.nodes);
     }
+    // A Column being digitized: both edges (the pointer extends the edge clicked next) and a
+    // line across each pair, including the pair being placed.
+    if (t.column && (t.column.a.length || t.column.b.length)) {
+      const { a, b, next } = t.column;
+      const cur = t.cursor ? pathNode(t.cursor[0], t.cursor[1]) : null;
+      const edgeA = cur && next === 'a' ? [...a, cur] : a;
+      const edgeB = cur && next === 'b' ? [...b, cur] : b;
+      line(materializePath(edgeA, false));
+      line(materializePath(edgeB, false));
+      ctx.setLineDash([2 * px, 2 * px]);
+      for (let i = 0; i < Math.min(edgeA.length, edgeB.length); i++) line([[edgeA[i]!.x, edgeA[i]!.y], [edgeB[i]!.x, edgeB[i]!.y]]);
+      ctx.setLineDash([]);
+      marks([...a, ...b]);
+    }
   }
 
   /** Guides and selection handles, in screen space. */

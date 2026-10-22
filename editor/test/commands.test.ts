@@ -248,10 +248,49 @@ describe('digitizing', () => {
     expect(box.maxX - box.minX).toBeCloseTo(box.maxY - box.minY, 6);
   });
 
-  it('digitizes two-rail satins rail by rail, and Columns with paired nodes', () => {
+  it('digitizes Columns by clicking back and forth across them: each pair sets width and angle', () => {
     const ed = new Editor(createDocument({ closestJoin: false }));
     ed.showRulers = false;
     ed.run('draw.column');
+    // Pairs across the column, its width changing from 4 to 8 to 6 mm.
+    click(ed, 0, 0);
+    expect(ed.status).toContain('other edge');
+    click(ed, 0, 4);
+    click(ed, 10, -2);
+    click(ed, 10, 6);
+    click(ed, 20, 0);
+    click(ed, 20, 6);
+    click(ed, 30, 0); // an unpaired last click is dropped
+    ed.keyDown({ key: 'Enter' });
+    const o = ed.doc.objects[0]!;
+    expect(o.settings.stitchType).toBe('radial_satin');
+    expect(o.settings.pairedRails).toBe(true);
+    expect(o.points.map((n) => [n.x, n.y])).toEqual([[0, 0], [10, -2], [20, 0]]);
+    expect(o.rail2.map((n) => [n.x, n.y])).toEqual([[0, 4], [10, 6], [20, 6]]);
+    expect(ed.stitchCount(o)).toBeGreaterThan(50);
+  });
+
+  it('Column: Backspace removes the last click; one pair is not enough', () => {
+    const ed = new Editor(createDocument({ closestJoin: false }));
+    ed.showRulers = false;
+    ed.run('draw.column');
+    click(ed, 0, 0);
+    click(ed, 0, 4);
+    click(ed, 9, 9);
+    ed.keyDown({ key: 'Backspace' });
+    ed.keyDown({ key: 'Enter' });
+    expect(ed.doc.objects).toHaveLength(0);
+    expect(ed.status).toContain('at least 2 pairs');
+    click(ed, 10, 0);
+    click(ed, 10, 4);
+    ed.keyDown({ key: 'Enter' });
+    expect(ed.doc.objects).toHaveLength(1);
+  });
+
+  it('digitizes two-rail satins rail by rail', () => {
+    const ed = new Editor(createDocument({ closestJoin: false }));
+    ed.showRulers = false;
+    ed.run('draw.twoRail');
     click(ed, 0, 0);
     click(ed, 20, 0);
     ed.keyDown({ key: 'Enter' });
@@ -260,10 +299,8 @@ describe('digitizing', () => {
     click(ed, 20, 5);
     ed.keyDown({ key: 'Enter' });
     const o = ed.doc.objects[0]!;
-    expect(o.settings.stitchType).toBe('radial_satin');
-    expect(o.settings.pairedRails).toBe(true);
+    expect(o.settings.pairedRails).toBe(false);
     expect(o.rail2.map((n) => [n.x, n.y])).toEqual([[0, 5], [20, 5]]);
-    expect(ed.stitchCount(o)).toBeGreaterThan(50);
   });
 
   it('adds a hole to the selected closed shape', () => {

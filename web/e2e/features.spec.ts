@@ -61,12 +61,14 @@ test('digitizes open and closed shapes, columns, two-rail satins, manual stitche
   await expect(rows(page)).toHaveCount(2);
   await expect(rows(page).nth(1)).toContainText('Tatami');
 
+  // Column: back and forth across it, one point on each edge per pair.
   await cmd(page, 'draw.column').click();
   await clickAt(page, 20, -80);
-  await clickAt(page, 120, -80);
-  await page.keyboard.press('Enter');
-  await expect(status(page)).toContainText('rail 2');
+  await expect(status(page)).toContainText('other edge');
   await clickAt(page, 20, -60);
+  await clickAt(page, 70, -85);
+  await clickAt(page, 70, -55, { button: 'right' });
+  await clickAt(page, 120, -80);
   await clickAt(page, 120, -60);
   await page.keyboard.press('Enter');
   await expect(rows(page)).toHaveCount(3);
