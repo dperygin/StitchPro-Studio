@@ -275,6 +275,20 @@ describe('materializePath', () => {
     expect(next[1]).toBeGreaterThan(0);
   });
 
+  it('keeps bending at the open ends, the way the curve beside them bends', () => {
+    // Three-quarters of a circle from end to end: the end stretches stay outside the chord,
+    // bulging away from the centre like the rest of the circle.
+    const r = 20;
+    const nodes = [corner(0, -r), curve(r, 0), curve(0, r), corner(-r, 0)];
+    const pts = materializePath(nodes, false, 0.1);
+    const firstHalf = pts.filter((p) => p[0] > 0 && p[1] < 0);
+    const lastHalf = pts.filter((p) => p[0] < 0 && p[1] > 0);
+    // Points on the end stretches lie outside the straight chords (x + y > r at the start's
+    // quarter, -x + ... symmetric at the end): they bulge outwards, never inwards.
+    for (const [x, y] of firstHalf) expect(x - y).toBeGreaterThanOrEqual(r - 1e-6);
+    for (const [x, y] of lastHalf) expect(y - x).toBeGreaterThanOrEqual(r - 1e-6);
+  });
+
   it('never loops past its end points or far outside its nodes', () => {
     const layouts = [
       [corner(5, 60), curve(25, 20), curve(40, 75), curve(48, 30), curve(90, 55), corner(95, 20)],

@@ -505,15 +505,47 @@ function curveTangent(nodes: readonly PathNode[], j: number, closed: boolean, ch
   return unit(next.x - prev.x, next.y - prev.y) ?? chord;
 }
 
+/** How far an open end may turn from its chord to follow the curve beside it. */
+const END_ANGLE_CAP = (45 * Math.PI) / 180;
+
+/** t turned towards `chord` so it lies at most `max` radians from it. */
+function limitAngle(t: Point, chord: Point, max: number): Point {
+  const angle = Math.acos(Math.max(-1, Math.min(1, t[0] * chord[0] + t[1] * chord[1])));
+  if (angle <= max) return t;
+  const r = Math.sign(chord[0] * t[1] - chord[1] * t[0]) * max;
+  return [chord[0] * Math.cos(r) - chord[1] * Math.sin(r), chord[0] * Math.sin(r) + chord[1] * Math.cos(r)];
+}
+
+/**
+ * Natural-spline end of an open path next to a curve node: the end tangent 3 x chord minus the
+ * curve node's tangent (Catmull-Rom scale), halved, so the end keeps bending the way the curve
+ * bends; turned at most 45 degrees from the chord.
+ */
+function naturalEnd(end: Point, curve: Point, beyond: Point, chord: Point, atStart: boolean): Point {
+  // The curve node's tangent vector, pointing the way of travel.
+  const m: Point = atStart ? [(beyond[0] - end[0]) / 2, (beyond[1] - end[1]) / 2] : [(end[0] - beyond[0]) / 2, (end[1] - beyond[1]) / 2];
+  const span: Point = atStart ? [curve[0] - end[0], curve[1] - end[1]] : [end[0] - curve[0], end[1] - curve[1]];
+  const t = unit((3 * span[0] - m[0]) / 2, (3 * span[1] - m[1]) / 2);
+  return t ? limitAngle(t, chord, END_ANGLE_CAP) : chord;
+}
+
 /**
  * Unit tangents leaving node i and arriving at node i+1: curve nodes (not open ends) take
- * their curve tangent; corners and open ends leave along the chord, so they never hook.
+ * their curve tangent; the open ends of a path next to a curve node keep bending with the
+ * curve (natural end); other corners leave along the chord, so they stay sharp and never hook.
  */
 function segmentTangents(nodes: readonly PathNode[], i: number, closed: boolean, chord: Point): [Point, Point] {
   const n = nodes.length;
   const j = (i + 1) % n;
   const curveAt = (k: number) => nodes[k]!.type === 'curve' && (closed || (k !== 0 && k !== n - 1));
-  return [curveAt(i) ? curveTangent(nodes, i, closed, chord) : chord, curveAt(j) ? curveTangent(nodes, j, closed, chord) : chord];
+  const p = (k: number): Point => [nodes[k]!.x, nodes[k]!.y];
+  let a = curveAt(i) ? curveTangent(nodes, i, closed, chord) : chord;
+  let b = curveAt(j) ? curveTangent(nodes, j, closed, chord) : chord;
+  if (!closed && n >= 3) {
+    if (i === 0 && curveAt(j)) a = naturalEnd(p(0), p(1), p(2), chord, true);
+    if (j === n - 1 && curveAt(i)) b = naturalEnd(p(n - 1), p(n - 2), p(n - 3), chord, false);
+  }
+  return [a, b];
 }
 
 /** Largest tangent-to-chord angle the handle length follows; beyond it handles stop growing. */
